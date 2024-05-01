@@ -1,11 +1,6 @@
 import chai.{print, option.*};
 import java.lang.Optional;
 
-extern interface Iterator<T> {
-    fn hasNext() -> boolean;
-    fn next() -> T;
-}
-
 fn div(float a, float b) -> Optional<float> {
     b == 0.0 ? none : some(a / b)
 }
