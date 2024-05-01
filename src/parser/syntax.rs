@@ -14,5 +14,6 @@ pub enum TopLevel {
     Function {
         name: Arc<str>,
         params: Vec<(FieldType, Arc<str>)>,
+        return_type: Option<FieldType>
     },
 }

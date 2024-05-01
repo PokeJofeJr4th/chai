@@ -1,5 +1,5 @@
 use std::sync::Arc;
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Token {
     Ident(Arc<str>),
     String(Arc<str>),

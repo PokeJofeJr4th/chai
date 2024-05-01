@@ -1,6 +1,6 @@
 use std::iter::Peekable;
 
-use crate::lexer::token::Token;
+use crate::{lexer::token::Token, types::FieldType};
 
 use self::syntax::{ImportTree, TopLevel};
 
@@ -51,7 +51,7 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
                 Ok(TopLevel::Import(import_tree))
             } "`;`")
         },
-        Token::Ident(id) if &*id == "fn" => todo!(),
+        Token::Ident(id) if &*id == "fn" => inner_parse_function(src),
     } "`import` or `fn`")
 }
 
@@ -98,4 +98,69 @@ fn single_import_tree(
     src.next();
     let children = import_tree(src)?;
     Ok(ImportTree { current, children })
+}
+
+fn inner_parse_function(
+    src: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<TopLevel, String> {
+    let_token!(src => Token::Ident(name), "function name identifier");
+    let_token!(src => Token::LParen, "`(`");
+
+    let mut params = Vec::new();
+    if src.peek() != Some(&Token::RParen) {
+        loop {
+            let ty = inner_parse_type(src)?;
+            let_token!(src => Token::Ident(field_name), "parameter name identifier");
+            params.push((ty, field_name));
+            match_token! (src {
+                Token::RParen => break,
+                Token::Comma => Ok(())
+            } "`)` or `,`")?;
+        }
+    }
+
+    let return_type = if src.peek() == Some(&Token::Arrow) {
+        src.next();
+        Some(inner_parse_type(src)?)
+    } else {
+        None
+    };
+
+    Ok(TopLevel::Function {
+        name,
+        params,
+        return_type,
+    })
+}
+
+fn inner_parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<FieldType, String> {
+    let mut class_buf = String::new();
+    let mut ret_type = match_token!(src {
+        Token::Ident(id) if &*id == "boolean" => Ok(FieldType::Boolean),
+        Token::Ident(id) if &*id == "byte" => Ok(FieldType::Byte),
+        Token::Ident(id) if &*id == "short" => Ok(FieldType::Short),
+        Token::Ident(id) if &*id == "int" => Ok(FieldType::Int),
+        Token::Ident(id) if &*id == "long" => Ok(FieldType::Long),
+        Token::Ident(id) if &*id == "float" => Ok(FieldType::Float),
+        Token::Ident(id) if &*id == "double" => Ok(FieldType::Double),
+        Token::Ident(id) if &*id == "char" => Ok(FieldType::Char),
+        Token::Ident(id) => {
+            class_buf.push_str(&id);
+            loop {
+                match src.peek() {
+                    Some(Token::Ident(id)) => class_buf.push_str(id),
+                    Some(Token::Dot) => class_buf.push('.'),
+                    _ => break,
+                }
+                src.next();
+            }
+            Ok(FieldType::Object(class_buf.into()))
+        }
+    } "type")?;
+    while src.peek() == Some(&Token::LSquare) {
+        src.next();
+        let_token!(src => Token::RSquare, "`]`");
+        ret_type = FieldType::Array(Box::new(ret_type));
+    }
+    Ok(ret_type)
 }
