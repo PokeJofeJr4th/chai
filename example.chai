@@ -1,0 +1,38 @@
+import chai.{print, option.*};
+import java.lang.Optional;
+
+extern interface Iterator<T> {
+    fn hasNext() -> boolean;
+    fn next() -> T;
+}
+
+fn div(float a, float b) -> Optional<float> {
+    b == 0.0 ? none : some(a / b)
+}
+
+fn div(int a, int b) -> (int, int) {
+    (a / b, a % b)
+}
+
+fn fizzbuzz(int num) {
+    for i in range(0, num) {
+        if i % 15 == 0 {
+            print("FizzBuzz");
+        } else if i % 5 == 0 {
+            print("Fizz");
+        } else if i % 3 == 0 {
+            print("Buzz");
+        } else {
+            print(i);
+        }
+    }
+}
+
+fn main(String[] args) {
+    Result<int> parseResult = try Integer.parseInt(args[0]);
+    if parseResult {
+        fizzbuzz(parseResult);
+    } else {
+        print("Error " + parseResult);
+    }
+}
