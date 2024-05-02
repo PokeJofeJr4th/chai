@@ -60,7 +60,9 @@ fn inner_tokenize<T: Iterator<Item = char>>(
         '[' => Token::LSquare,
         ']' => Token::RSquare,
         // '@' => Token::At,
-        '=' => multi_character_pattern!(chars Token::Eq; '>' => Token::BigArrow),
+        '=' => {
+            multi_character_pattern!(chars Token::Eq; '=' => Token::EqEq, '>' => Token::BigArrow)
+        }
         '+' => {
             multi_character_pattern!(chars Token::Plus; '=' => Token::PlusEq, '+' => Token::PlusPlus)
         }
@@ -88,16 +90,16 @@ fn inner_tokenize<T: Iterator<Item = char>>(
                 if next == '"' {
                     break;
                 }
-                string_buf.push(next);
                 if next == '\\' {
                     let escape = chars
                         .next()
                         .ok_or_else(|| String::from("Unexpected end of file"))?;
-                    string_buf.push(
-                        match_escape(escape).ok_or_else(|| {
-                            format!(r#"Unsupported escape character: "\{escape}""#)
-                        })?,
-                    );
+                    string_buf
+                        .push(match_escape(escape).ok_or_else(|| {
+                            format!(r#"Unsupported escape character: \{escape}"#)
+                        })?);
+                } else {
+                    string_buf.push(next);
                 }
             }
             Token::String(string_buf.into())

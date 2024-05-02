@@ -24,5 +24,5 @@ fn main() {
 
     let syn = parser::parse(toks).unwrap();
 
-    println!("{syn:?}");
+    println!("{syn:#?}");
 }

@@ -1,11 +1,27 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use crate::types::FieldType;
 
-#[derive(Debug)]
 pub struct ImportTree {
     pub current: Arc<str>,
     pub children: Vec<ImportTree>,
+}
+
+impl Debug for ImportTree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.current)?;
+        match &self.children[..] {
+            [] => Ok(()),
+            [child] => write!(f, ".{child:?}"),
+            children => {
+                write!(f, ".{{{:?}", children[0])?;
+                for child in children.iter().skip(1) {
+                    write!(f, ", {child:?}")?;
+                }
+                write!(f, "}}")
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -15,6 +31,7 @@ pub enum TopLevel {
         name: Arc<str>,
         params: Vec<(FieldType, Arc<str>)>,
         return_type: Option<FieldType>,
+        body: Expression,
     },
 }
 
@@ -24,7 +41,11 @@ pub enum Expression {
     Int(i64),
     Float(f64),
     String(Arc<str>),
-    Block(Vec<Expression>),
+    Block {
+        statements: Vec<Expression>,
+        ret: Option<Box<Expression>>,
+    },
+    Tuple(Vec<Expression>),
     UnaryOperation(UnaryOperator, Box<Expression>),
     BinaryOperation(Box<Expression>, BinaryOperator, Box<Expression>),
     TernaryOperation {
@@ -41,22 +62,34 @@ pub enum Expression {
         body: Box<Expression>,
         else_body: Option<Box<Expression>>,
     },
-    /// represents while, for, and loop
+    Let {
+        ty: FieldType,
+        var: Arc<str>,
+        value: Box<Expression>,
+    },
+    /// represents `while` and `loop`
     Loop {
-        init: Option<Box<Expression>>,
         body: Box<Expression>,
-        step: Option<Box<Expression>>,
         condition: Option<Box<Expression>>,
+    },
+    For {
+        ty: FieldType,
+        var: Arc<str>,
+        range: Box<Expression>,
+        body: Box<Expression>,
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOperator {
     Not,
     Minus,
+    Inc,
+    Dec,
+    Try,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinaryOperator {
     Dot,
     Add,
@@ -82,5 +115,7 @@ pub enum BinaryOperator {
     Gt,
     Ge,
     Eq,
+    Ne,
     Set,
+    Index,
 }

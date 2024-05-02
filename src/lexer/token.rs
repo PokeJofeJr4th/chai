@@ -1,5 +1,8 @@
-use std::sync::Arc;
-#[derive(Debug, PartialEq)]
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
+#[derive(PartialEq)]
 pub enum Token {
     Ident(Arc<str>),
     String(Arc<str>),
@@ -40,4 +43,72 @@ pub enum Token {
     QuestionQuestion,
     Arrow,
     BigArrow,
+    Or,
+    OrEq,
+    BitOr,
+    And,
+    AndEq,
+    BitAnd,
+    Xor,
+    XorEq,
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ident(id) => write!(f, "{}", &**id),
+            Self::String(s) => write!(f, "{s:?}"),
+            Self::Int(i) => write!(f, "{i}"),
+            Self::Float(ff) => write!(f, "{ff}"),
+            Self::Plus => write!(f, "+"),
+            Self::PlusEq => write!(f, "+="),
+            Self::PlusPlus => write!(f, "++"),
+            Self::Tack => write!(f, "-"),
+            Self::TackEq => write!(f, "-="),
+            Self::TackTack => write!(f, "--"),
+            Self::Slash => write!(f, "/"),
+            Self::SlashEq => write!(f, "/="),
+            Self::Star => write!(f, "*"),
+            Self::StarEq => write!(f, "*="),
+            Self::Percent => write!(f, "%"),
+            Self::PercEq => write!(f, "%="),
+            Self::Dot => write!(f, "."),
+            Self::Eq => write!(f, "="),
+            Self::EqEq => write!(f, "=="),
+            Self::Bang => write!(f, "!"),
+            Self::BangEq => write!(f, "!="),
+            Self::LParen => write!(f, "("),
+            Self::RParen => write!(f, ")"),
+            Self::LCurly => write!(f, "{{"),
+            Self::RCurly => write!(f, "}}"),
+            Self::LSquare => write!(f, "["),
+            Self::RSquare => write!(f, "]"),
+            Self::Colon => write!(f, ":"),
+            Self::ColonColon => write!(f, "::"),
+            Self::Comma => write!(f, ","),
+            Self::Semicolon => write!(f, ";"),
+            Self::LCaret => write!(f, "<"),
+            Self::LCaretEq => write!(f, "<="),
+            Self::RCaret => write!(f, ">"),
+            Self::RCaretEq => write!(f, ">="),
+            Self::Question => write!(f, "?"),
+            Self::QuestionQuestion => write!(f, "??"),
+            Self::Arrow => write!(f, "->"),
+            Self::BigArrow => write!(f, "=>"),
+            Self::Or => write!(f, "||"),
+            Self::OrEq => write!(f, "|="),
+            Self::BitOr => write!(f, "|"),
+            Self::And => write!(f, "&&"),
+            Self::AndEq => write!(f, "&="),
+            Self::BitAnd => write!(f, "&"),
+            Self::Xor => write!(f, "^"),
+            Self::XorEq => write!(f, "^="),
+        }
+    }
 }
