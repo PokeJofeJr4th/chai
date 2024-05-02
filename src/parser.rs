@@ -129,6 +129,8 @@ fn inner_parse_function(
         None
     };
 
+    let body = inner_parse_expression(src)?;
+
     Ok(TopLevel::Function {
         name,
         params,
@@ -177,4 +179,8 @@ fn inner_parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<F
         array_depth += 1;
     }
     Ok(FieldType { ty, array_depth })
+}
+
+fn inner_parse_expression(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<(), String> {
+    todo!()
 }

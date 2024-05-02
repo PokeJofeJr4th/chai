@@ -1,18 +1,30 @@
+Basic Features
+
 modules
-typescript tuples/structs for multiple returns -- Object[] at runtime
 implicit returns
 can structs implement interfaces?
 extern classes/interfaces
+ternary operator (`??`);
+autoboxing/unboxing
+instanceof, casting
+generics
+
+Nice To Have
+
+typescript tuples/structs for multiple returns -- Object[] at runtime
 first-class optionals (`?` for try operator)
 `if let` will unbox an optional
-ternary operator (`??`);
 first-class functions? (use tuples for multiple params)
-autoboxing/unboxing
-generics
-instanceof, casting
+
+Stretches
 
 try? attempt to execute something; return value is either Throwable or the expected type
 Result is essentially a union type that is either Throwable (Err) or not (Ok)
 This would prevent returning an exception as a value, but I think this works
 `?` on this will return the throwable if in a Result fn
 should it throw the exception if in another fn?
+
+C# style properties
+use on structs or classes?
+
+operator overloading on structs
