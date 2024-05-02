@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 #[derive(Debug)]
-pub enum FieldType {
+pub enum InnerFieldType {
     Boolean,
     Byte,
     Short,
@@ -10,6 +10,23 @@ pub enum FieldType {
     Float,
     Double,
     Char,
-    Object(Arc<str>),
-    Array(Box<FieldType>),
+    Object {
+        base: Arc<str>,
+        generics: Vec<FieldType>,
+    },
+}
+
+#[derive(Debug)]
+pub struct FieldType {
+    pub ty: InnerFieldType,
+    pub array_depth: usize,
+}
+
+impl From<InnerFieldType> for FieldType {
+    fn from(value: InnerFieldType) -> Self {
+        Self {
+            ty: value,
+            array_depth: 0,
+        }
+    }
 }

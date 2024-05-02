@@ -1,6 +1,9 @@
 use std::iter::Peekable;
 
-use crate::{lexer::token::Token, types::FieldType};
+use crate::{
+    lexer::token::Token,
+    types::{FieldType, InnerFieldType},
+};
 
 use self::syntax::{ImportTree, TopLevel};
 
@@ -134,33 +137,44 @@ fn inner_parse_function(
 }
 
 fn inner_parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<FieldType, String> {
-    let mut class_buf = String::new();
-    let mut ret_type = match_token!(src {
-        Token::Ident(id) if &*id == "boolean" => Ok(FieldType::Boolean),
-        Token::Ident(id) if &*id == "byte" => Ok(FieldType::Byte),
-        Token::Ident(id) if &*id == "short" => Ok(FieldType::Short),
-        Token::Ident(id) if &*id == "int" => Ok(FieldType::Int),
-        Token::Ident(id) if &*id == "long" => Ok(FieldType::Long),
-        Token::Ident(id) if &*id == "float" => Ok(FieldType::Float),
-        Token::Ident(id) if &*id == "double" => Ok(FieldType::Double),
-        Token::Ident(id) if &*id == "char" => Ok(FieldType::Char),
+    let ty = match_token!(src {
+        Token::Ident(id) if &*id == "boolean" => Ok(InnerFieldType::Boolean),
+        Token::Ident(id) if &*id == "byte" => Ok(InnerFieldType::Byte),
+        Token::Ident(id) if &*id == "short" => Ok(InnerFieldType::Short),
+        Token::Ident(id) if &*id == "int" => Ok(InnerFieldType::Int),
+        Token::Ident(id) if &*id == "long" => Ok(InnerFieldType::Long),
+        Token::Ident(id) if &*id == "float" => Ok(InnerFieldType::Float),
+        Token::Ident(id) if &*id == "double" => Ok(InnerFieldType::Double),
+        Token::Ident(id) if &*id == "char" => Ok(InnerFieldType::Char),
         Token::Ident(id) => {
-            class_buf.push_str(&id);
+            let mut base = String::new();
+            base.push_str(&id);
             loop {
                 match src.peek() {
-                    Some(Token::Ident(id)) => class_buf.push_str(id),
-                    Some(Token::Dot) => class_buf.push('.'),
+                    Some(Token::Ident(id)) => base.push_str(id),
+                    Some(Token::Dot) => base.push('.'),
                     _ => break,
                 }
                 src.next();
             }
-            Ok(FieldType::Object(class_buf.into()))
+            let mut generics = Vec::new();
+            if src.next_if_eq(&Token::LCaret).is_some() && src.next_if_eq(&Token::RCaret).is_none(){
+                loop {
+                    generics.push(inner_parse_type(src)?);
+                    match_token!(src {
+                        Token::RCaret => break,
+                        Token::Comma => Ok(()),
+                    } "`>` or `,`")?;
+                }
+            }
+            Ok(InnerFieldType::Object { base: base.into(), generics })
         }
     } "type")?;
+    let mut array_depth = 0;
     while src.peek() == Some(&Token::LSquare) {
         src.next();
         let_token!(src => Token::RSquare, "`]`");
-        ret_type = FieldType::Array(Box::new(ret_type));
+        array_depth += 1;
     }
-    Ok(ret_type)
+    Ok(FieldType { ty, array_depth })
 }
