@@ -9,7 +9,7 @@ use jvmrs_lib::MethodDescriptor;
 pub enum CtxItem {
     Function(MethodDescriptor),
     Class,
-    Variable,
+    Variable(usize),
     Field,
 }
 

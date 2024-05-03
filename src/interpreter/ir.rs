@@ -61,7 +61,7 @@ pub struct IRFunction {
 pub enum IRStatement {
     Push(IRLocation),
     Pop,
-    Invoke(()),
+    Invoke(Arc<str>),
     Branch(IRLocation, Symbol),
     Jump(Symbol),
     Label(Symbol),
@@ -76,7 +76,7 @@ pub enum IRStatement {
 pub enum IRLocation {
     Stack,
     Void,
-    LocalVar(Symbol),
+    LocalVar(usize),
     String(Arc<str>),
     Int(i64),
     Float(f64),

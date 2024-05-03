@@ -1,6 +1,11 @@
+use std::sync::Arc;
+
 use jvmrs_lib::method;
 
-use crate::parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator};
+use crate::{
+    parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel},
+    types::FieldType,
+};
 
 use self::{
     context::{Context, CtxItem},
@@ -31,10 +36,20 @@ pub fn resolve_imports(
                     CtxItem::Function(method!((int, int) -> int)),
                 );
             }
+            (["chai", "option"], "*") => {
+                context.insert("none".into(), CtxItem::Field);
+                context.insert("some".into(), CtxItem::Function(method!(((Object("java/lang/Object".into()))) -> Object("java/lang/Optional".into()))));
+            }
+            (["java", "lang"], "Optional") => {
+                context.insert("Optional".into(), CtxItem::Class);
+            }
             (parents, current) => {
                 return Err(format!("Can't import {}.{current}", parents.join(".")));
             }
         }
+    }
+    for child in &tree.children {
+        resolve_imports(&[parents, &[&*tree.current]].concat(), child, context)?;
     }
     Ok(())
 }
@@ -70,11 +85,13 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
     let mut ir_functions = Vec::new();
     for (name, params, return_type, body) in &functions {
         let mut function_context = global_context.child();
+        let mut local_var_table = Vec::new();
         for (ty, param) in params {
-            function_context.insert(param.clone(), CtxItem::Variable);
+            function_context.insert(param.clone(), CtxItem::Variable(local_var_table.len()));
+            local_var_table.push((ty.clone(), param.clone()));
         }
 
-        let (body, loc) = interpret_syntax(body, &mut function_context)?;
+        let (body, loc) = interpret_syntax(body, &mut function_context, &mut local_var_table)?;
 
         ir_functions.push(IRFunction {
             name: name.clone(),
@@ -90,11 +107,19 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
 fn interpret_syntax(
     syn: &Expression,
     function_context: &mut Context,
+    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
 ) -> Result<(Vec<IRStatement>, IRLocation), String> {
     match syn {
         Expression::Ident(i) => {
-            let options = function_context.get(i);
-            Ok((Vec::new(), IRLocation::Stack))
+            let Some(options) = function_context.get(i) else {
+                return Err(format!("Unresolved identifier `{i}`"));
+            };
+            for opt in options {
+                if let CtxItem::Variable(var) = opt {
+                    return Ok((Vec::new(), IRLocation::LocalVar(*var)));
+                }
+            }
+            return Err(format!("Unresolved identifier `{i}`"));
         }
         Expression::Int(i) => Ok((Vec::new(), IRLocation::Int(*i))),
         Expression::Float(f) => Ok((Vec::new(), IRLocation::Float(*f))),
@@ -103,14 +128,14 @@ fn interpret_syntax(
             let mut output = Vec::new();
             let mut block_context = function_context.child();
             for statement in statements {
-                let (syn, loc) = interpret_syntax(statement, &mut block_context)?;
+                let (syn, loc) = interpret_syntax(statement, &mut block_context, local_var_table)?;
                 if loc == IRLocation::Stack {
                     output.push(IRStatement::Pop);
                 }
                 output.extend(syn);
             }
             if let Some(ret) = ret {
-                let (syn, loc) = interpret_syntax(ret, &mut block_context)?;
+                let (syn, loc) = interpret_syntax(ret, &mut block_context, local_var_table)?;
                 output.extend(syn);
                 Ok((output, loc))
             } else {
@@ -120,7 +145,7 @@ fn interpret_syntax(
         Expression::Tuple(elements) => {
             let mut out = Vec::new();
             for element in elements {
-                let (code, loc) = interpret_syntax(element, function_context)?;
+                let (code, loc) = interpret_syntax(element, function_context, local_var_table)?;
                 out.extend(code);
                 if loc != IRLocation::Stack {
                     out.push(IRStatement::Move(loc, IRLocation::Stack));
@@ -130,27 +155,28 @@ fn interpret_syntax(
             Ok((out, IRLocation::Stack))
         }
         Expression::UnaryOperation(op, inner) => {
-            let (mut output, loc) = interpret_syntax(inner, function_context)?;
+            let (mut output, loc) = interpret_syntax(inner, function_context, local_var_table)?;
             output.push(IRStatement::UnaryOperation(*op, loc));
             Ok((output, IRLocation::Stack))
         }
         Expression::BinaryOperation(lhs, op, rhs) => {
-            let (mut output, lhs_loc) = interpret_syntax(lhs, function_context)?;
-            let (rhs_out, rhs_loc) = interpret_syntax(rhs, function_context)?;
+            let (mut output, lhs_loc) = interpret_syntax(lhs, function_context, local_var_table)?;
+            let (rhs_out, rhs_loc) = interpret_syntax(rhs, function_context, local_var_table)?;
             output.extend(rhs_out);
             output.push(IRStatement::BinaryOperation(lhs_loc, *op, rhs_loc));
             Ok((output, IRLocation::Stack))
         }
         Expression::FunctionCall { function, args } => {
-            let (mut output, other_info) = resolve_function(function, function_context)?;
+            let (mut output, method_name) =
+                resolve_function(function, function_context, local_var_table)?;
             for arg in args {
-                let (code, loc) = interpret_syntax(arg, function_context)?;
+                let (code, loc) = interpret_syntax(arg, function_context, local_var_table)?;
                 output.extend(code);
                 if loc != IRLocation::Stack {
                     output.push(IRStatement::Move(loc, IRLocation::Stack));
                 }
             }
-            output.push(IRStatement::Invoke(other_info));
+            output.push(IRStatement::Invoke(method_name));
             Ok((output, IRLocation::Stack))
         }
         Expression::If {
@@ -162,10 +188,10 @@ fn interpret_syntax(
             let symbol_end = Symbol::new("ternary.endif".into());
 
             let (false_body, false_loc) = match else_body {
-                Some(else_body) => interpret_syntax(else_body, function_context)?,
+                Some(else_body) => interpret_syntax(else_body, function_context, local_var_table)?,
                 None => (Vec::new(), IRLocation::Void),
             };
-            let (true_body, true_loc) = interpret_syntax(body, function_context)?;
+            let (true_body, true_loc) = interpret_syntax(body, function_context, local_var_table)?;
             let output_loc = if true_loc == false_loc {
                 true_loc.clone()
             } else {
@@ -173,7 +199,7 @@ fn interpret_syntax(
             };
 
             // if condition jmp then
-            let mut output = ir_branch(condition, &symbol_then, function_context)?;
+            let mut output = ir_branch(condition, &symbol_then, function_context, local_var_table)?;
             // else:
             output.extend(false_body);
             if output_loc != false_loc {
@@ -192,10 +218,12 @@ fn interpret_syntax(
             Ok((output, output_loc))
         }
         Expression::Let { ty, var, value } => {
-            function_context.insert(var.clone(), CtxItem::Variable);
+            let local_index = local_var_table.len();
+            function_context.insert(var.clone(), CtxItem::Variable(local_index));
+            local_var_table.push((ty.clone(), var.clone()));
             let local_symbol = Symbol::new(var.clone());
-            let (mut output, loc) = interpret_syntax(value, function_context)?;
-            output.push(IRStatement::Move(loc, IRLocation::LocalVar(local_symbol)));
+            let (mut output, loc) = interpret_syntax(value, function_context, local_var_table)?;
+            output.push(IRStatement::Move(loc, IRLocation::LocalVar(local_index)));
             Ok((output, IRLocation::Void))
         }
         Expression::Loop { body, condition } => {
@@ -209,7 +237,7 @@ fn interpret_syntax(
             }
             // body:
             output.push(IRStatement::Label(body_symbol.clone()));
-            let (body, body_loc) = interpret_syntax(body, function_context)?;
+            let (body, body_loc) = interpret_syntax(body, function_context, local_var_table)?;
             if body_loc != IRLocation::Void {
                 return Err(format!("Loop body should return void; got `{body_loc:?}`"));
             }
@@ -219,7 +247,8 @@ fn interpret_syntax(
             // if condition goto body
             match condition {
                 Some(condition) => {
-                    let branch = ir_branch(condition, &body_symbol, function_context)?;
+                    let branch =
+                        ir_branch(condition, &body_symbol, function_context, local_var_table)?;
                     output.extend(branch);
                 }
                 None => {
@@ -242,7 +271,8 @@ fn interpret_syntax(
                         let body_symbol = Symbol::new("for.body".into());
 
                         // initialize
-                        let (mut output, loop_var_loc) = interpret_syntax(start, function_context)?;
+                        let (mut output, loop_var_loc) =
+                            interpret_syntax(start, function_context, local_var_table)?;
                         if loop_var_loc != IRLocation::Stack {
                             output.push(IRStatement::Move(loop_var_loc, IRLocation::Stack));
                         }
@@ -251,7 +281,8 @@ fn interpret_syntax(
                         // increment
                         // TODO
                         // body
-                        let (body, body_loc) = interpret_syntax(body, function_context)?;
+                        let (body, body_loc) =
+                            interpret_syntax(body, function_context, local_var_table)?;
                         output.extend(body);
                         if body_loc != IRLocation::Void {
                             return Err(format!(
@@ -276,18 +307,19 @@ fn ir_branch(
     condition: &Expression,
     jump: &Symbol,
     context: &mut Context,
+    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
 ) -> Result<Vec<IRStatement>, String> {
     match condition {
         Expression::BinaryOperation(lhs, BinaryOperator::Or, rhs) => {
-            let mut output = ir_branch(lhs, jump, context)?;
-            output.extend(ir_branch(rhs, jump, context)?);
+            let mut output = ir_branch(lhs, jump, context, local_var_table)?;
+            output.extend(ir_branch(rhs, jump, context, local_var_table)?);
             Ok(output)
         }
         Expression::BinaryOperation(lhs, BinaryOperator::And, rhs) => {
             todo!()
         }
         cond => {
-            let (mut output, cnd_loc) = interpret_syntax(cond, context)?;
+            let (mut output, cnd_loc) = interpret_syntax(cond, context, local_var_table)?;
             output.push(IRStatement::Branch(cnd_loc, jump.clone()));
             Ok(output)
         }
@@ -297,19 +329,22 @@ fn ir_branch(
 fn resolve_function(
     function: &Expression,
     context: &mut Context,
-) -> Result<(Vec<IRStatement>, ()), String> {
+    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
+) -> Result<(Vec<IRStatement>, Arc<str>), String> {
     match function {
         Expression::BinaryOperation(obj, BinaryOperator::Dot, func) => {
-            let (mut output, loc) = interpret_syntax(obj, context)?;
+            let (mut output, loc) = interpret_syntax(obj, context, local_var_table)?;
             if loc != IRLocation::Stack {
                 output.push(IRStatement::Move(loc, IRLocation::Stack));
             }
-            // TODO: resolve the function name
-            Ok((output, ()))
+            let Expression::Ident(id) = &**func else {
+                return Err(format!("Expected function name; got `{func:?}`"));
+            };
+            Ok((output, id.clone()))
         }
         Expression::Ident(id) => {
             let func_set = context.get(id);
-            Ok((Vec::new(), ()))
+            Ok((Vec::new(), id.clone()))
         }
         other => Err(format!("`{other:?}` is not a function")),
     }
