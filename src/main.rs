@@ -4,6 +4,7 @@ use std::{fs, path::PathBuf};
 
 use clap::Parser;
 
+pub mod interpreter;
 pub mod lexer;
 pub mod parser;
 pub mod types;
@@ -25,4 +26,6 @@ fn main() {
     let syn = parser::parse(toks).unwrap();
 
     println!("{syn:#?}");
+
+    let interpreted = interpreter::interpret(syn).unwrap();
 }

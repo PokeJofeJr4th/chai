@@ -1,0 +1,77 @@
+use std::{
+    fmt::Debug,
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
+
+use crate::parser::syntax::BinaryOperator;
+
+#[derive(Clone, Eq)]
+pub struct Symbol(usize, Arc<str>);
+
+impl PartialEq for Symbol {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Hash for Symbol {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl Debug for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}#{}", self.0, self.1)
+    }
+}
+
+impl Symbol {
+    /// # Panics
+    pub fn new(name: Arc<str>) -> Self {
+        static ID: Mutex<usize> = Mutex::new(0);
+
+        let mut id_borrow = ID.lock().unwrap();
+        let id = *id_borrow;
+        *id_borrow += 1;
+        drop(id_borrow);
+
+        Self(id, name)
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> usize {
+        self.0
+    }
+}
+
+pub enum IRStatement {
+    Assign(IRExpr, AssignOp, IRExpr),
+    Push(IRExpr),
+    Branch(IRExpr, Symbol),
+    Jump(Symbol),
+    Label(Symbol),
+    Return,
+}
+
+pub enum AssignOp {
+    Eq,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    And,
+    Or,
+    Xor,
+}
+
+pub enum IRExpr {
+    BinaryOperation(Box<IRExpr>, BinaryOperator, Box<IRExpr>),
+    Block {
+        body: Vec<IRStatement>,
+        ret: Option<Box<IRExpr>>,
+    },
+    LocalVariable(Symbol),
+}
