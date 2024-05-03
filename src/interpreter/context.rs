@@ -3,9 +3,11 @@ use std::{
     sync::Arc,
 };
 
+use jvmrs_lib::MethodDescriptor;
+
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub enum CtxItem {
-    Function,
+    Function(MethodDescriptor),
     Class,
     Variable,
     Field,

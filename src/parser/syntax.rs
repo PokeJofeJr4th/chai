@@ -48,11 +48,6 @@ pub enum Expression {
     Tuple(Vec<Expression>),
     UnaryOperation(UnaryOperator, Box<Expression>),
     BinaryOperation(Box<Expression>, BinaryOperator, Box<Expression>),
-    TernaryOperation {
-        condition: Box<Expression>,
-        if_true: Box<Expression>,
-        if_false: Box<Expression>,
-    },
     FunctionCall {
         function: Box<Expression>,
         args: Vec<Expression>,

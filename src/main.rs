@@ -28,4 +28,6 @@ fn main() {
     println!("{syn:#?}");
 
     let interpreted = interpreter::interpret(syn).unwrap();
+
+    println!("{interpreted:#?}");
 }

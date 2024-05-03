@@ -4,7 +4,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::parser::syntax::BinaryOperator;
+use crate::{
+    parser::syntax::{BinaryOperator, UnaryOperator},
+    types::FieldType,
+};
 
 #[derive(Clone, Eq)]
 pub struct Symbol(usize, Arc<str>);
@@ -46,32 +49,35 @@ impl Symbol {
     }
 }
 
+#[derive(Debug)]
+pub struct IRFunction {
+    pub name: Arc<str>,
+    pub params: Vec<(FieldType, Arc<str>)>,
+    pub ret: Option<FieldType>,
+    pub body: Vec<IRStatement>,
+}
+
+#[derive(Debug)]
 pub enum IRStatement {
-    Assign(IRExpr, AssignOp, IRExpr),
-    Push(IRExpr),
-    Branch(IRExpr, Symbol),
+    Push(IRLocation),
+    Pop,
+    Invoke(()),
+    Branch(IRLocation, Symbol),
     Jump(Symbol),
     Label(Symbol),
+    Move(IRLocation, IRLocation),
+    BinaryOperation(IRLocation, BinaryOperator, IRLocation),
+    UnaryOperation(UnaryOperator, IRLocation),
+    MakeTuple(usize),
     Return,
 }
 
-pub enum AssignOp {
-    Eq,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Mod,
-    And,
-    Or,
-    Xor,
-}
-
-pub enum IRExpr {
-    BinaryOperation(Box<IRExpr>, BinaryOperator, Box<IRExpr>),
-    Block {
-        body: Vec<IRStatement>,
-        ret: Option<Box<IRExpr>>,
-    },
-    LocalVariable(Symbol),
+#[derive(Debug, PartialEq, Clone)]
+pub enum IRLocation {
+    Stack,
+    Void,
+    LocalVar(Symbol),
+    String(Arc<str>),
+    Int(i64),
+    Float(f64),
 }

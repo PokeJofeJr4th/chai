@@ -37,6 +37,7 @@ macro_rules! let_token {
 }
 
 /// # Errors
+/// # Panics
 pub fn parse(src: Vec<Token>) -> Result<Vec<TopLevel>, String> {
     let mut toks = src.into_iter().peekable();
     let mut syntax = Vec::new();
@@ -286,10 +287,10 @@ fn parse_expr(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Express
     let if_true = parse_expr(src)?;
     let_token!(src => Token::Colon, "`:` (ternary else)");
     let if_false = parse_expr(src)?;
-    Ok(Expression::TernaryOperation {
+    Ok(Expression::If {
         condition: Box::new(start),
-        if_true: Box::new(if_true),
-        if_false: Box::new(if_false),
+        body: Box::new(if_true),
+        else_body: Some(Box::new(if_false)),
     })
 }
 
