@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use jvmrs_lib::method;
 
@@ -8,7 +8,7 @@ use crate::{
 };
 
 use self::{
-    context::{Context, CtxItem},
+    context::{ClassInfo, Context, CtxItem},
     ir::{IRFunction, IRLocation, IRStatement, Symbol},
     types::TypeHint,
 };
@@ -46,10 +46,23 @@ pub fn resolve_imports(
                 context.insert("some".into(), CtxItem::Function(method!(((Object("java/lang/Object".into()))) -> Object("java/lang/Optional".into()))));
             }
             (["java", "lang"], "Integer") => {
-                context.insert("Integer".into(), CtxItem::Class);
+                context.insert("Integer".into(), CtxItem::Class(ClassInfo {
+                    name: "java/lang/Integer".into(),
+                    superclass: "java/lang/Object".into(),
+                    fields: Vec::new(),
+                    methods: HashMap::new(),
+                }));
             }
             (["java", "lang"], "Optional") => {
-                context.insert("Optional".into(), CtxItem::Class);
+                context.insert(
+                    "Optional".into(),
+                    CtxItem::Class(ClassInfo {
+                        name: "java/lang/Optional".into(),
+                        superclass: "java/lang/Object".into(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                    }),
+                );
             }
             (parents, current) => {
                 return Err(format!("Can't import {}.{current}", parents.join(".")));
@@ -378,14 +391,22 @@ fn resolve_function(
 ) -> Result<(Vec<IRStatement>, Arc<str>), String> {
     match function {
         Expression::BinaryOperation(obj, BinaryOperator::Dot, func) => {
+            let Expression::Ident(id) = &**func else {
+                return Err(format!("Expected function name; got `{func:?}`"));
+            };
+            if let Expression::Ident(class) = &**obj {
+                if let Some(CtxItem::Class(class)) = context.get(class) {
+                    let Some(method_choices) = class.methods.get(id) else {
+                        return Err(format!("No function {id} found on class {}", class.name));
+                    };
+                    return Ok((Vec::new(), "".into()));
+                }
+            }
             let (mut output, loc, obj_ty) = interpret_syntax(obj, context, local_var_table)?;
             if loc != IRLocation::Stack {
                 output.push(IRStatement::Move(loc, IRLocation::Stack));
             }
             // TODO: use the object type to help resolve the function
-            let Expression::Ident(id) = &**func else {
-                return Err(format!("Expected function name; got `{func:?}`"));
-            };
             Ok((output, id.clone()))
         }
         Expression::Ident(id) => {

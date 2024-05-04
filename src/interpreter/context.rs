@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     sync::Arc,
 };
 
@@ -10,9 +11,23 @@ use crate::types::FieldType;
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub enum CtxItem {
     Function(MethodDescriptor),
-    Class,
+    Class(ClassInfo),
     Variable(usize, FieldType),
     Field,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct ClassInfo {
+    pub name: Arc<str>,
+    pub superclass: Arc<str>,
+    pub fields: Vec<(Arc<str>, FieldType)>,
+    pub methods: HashMap<Arc<str>, Vec<MethodDescriptor>>,
+}
+
+impl Hash for ClassInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
 }
 
 pub struct Context {
