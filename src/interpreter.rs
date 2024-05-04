@@ -10,7 +10,7 @@ use crate::{
 use self::{
     context::{ClassInfo, Context, CtxItem, FunctionInfo},
     ir::{IRFunction, IRLocation, IRStatement, Symbol},
-    types::TypeHint,
+    types::{operate_types, TypeHint},
 };
 
 pub mod context;
@@ -30,37 +30,31 @@ pub fn resolve_imports(
             (["chai"], "print") => {
                 context.insert(
                     "print".into(),
-                    CtxItem::Function(FunctionInfo {
+                    CtxItem::Function(vec![Arc::new(FunctionInfo {
                         class: "<chai>".into(),
                         access: access!(public static),
                         name: "print".into(),
-                        params: vec![TypeHint::Concrete(
-                            InnerFieldType::Object {
-                                base: "java/lang/String".into(),
-                                generics: Vec::new(),
-                            }
-                            .into(),
-                        )],
+                        params: vec![TypeHint::Any],
                         ret: TypeHint::Void,
-                    }),
+                    })]),
                 );
             }
             (["chai"], "range") => {
                 context.insert(
                     "range".into(),
-                    CtxItem::Function(FunctionInfo {
+                    CtxItem::Function(vec![Arc::new(FunctionInfo {
                         class: "<chai>".into(),
                         access: access!(public static),
                         name: "range".into(),
                         params: vec![TypeHint::Integral, TypeHint::Integral],
                         ret: TypeHint::Integral,
-                    }),
+                    })]),
                 );
             }
             (["chai", "option"], "*") => {
                 context.insert(
                     "none".into(),
-                    CtxItem::Function(FunctionInfo {
+                    CtxItem::Function(vec![Arc::new(FunctionInfo {
                         class: "<chai>".into(),
                         access: access!(public static),
                         name: "none".into(),
@@ -72,11 +66,11 @@ pub fn resolve_imports(
                             }
                             .into(),
                         ),
-                    }),
+                    })]),
                 );
                 context.insert(
                     "some".into(),
-                    CtxItem::Function(FunctionInfo {
+                    CtxItem::Function(vec![Arc::new(FunctionInfo {
                         class: "<chai>".into(),
                         access: access!(public static),
                         name: "some".into(),
@@ -94,14 +88,14 @@ pub fn resolve_imports(
                             }
                             .into(),
                         ),
-                    }),
+                    })]),
                 );
             }
             (["java", "lang"], "Integer") => {
                 let mut methods = HashMap::new();
                 methods.insert(
                     "parseInt".into(),
-                    vec![FunctionInfo {
+                    vec![Arc::new(FunctionInfo {
                         name: "parseInt".into(),
                         class: "java/lang/Integer".into(),
                         access: access!(public static),
@@ -113,7 +107,7 @@ pub fn resolve_imports(
                             .into(),
                         )],
                         ret: TypeHint::Concrete(InnerFieldType::Int.into()),
-                    }],
+                    })],
                 );
                 context.insert(
                     "Integer".into(),
@@ -130,6 +124,17 @@ pub fn resolve_imports(
                     "Optional".into(),
                     CtxItem::Class(ClassInfo {
                         name: "java/lang/Optional".into(),
+                        superclass: "java/lang/Object".into(),
+                        fields: Vec::new(),
+                        methods: HashMap::new(),
+                    }),
+                );
+            }
+            (["java", "lang"], "String") => {
+                context.insert(
+                    "String".into(),
+                    CtxItem::Class(ClassInfo {
+                        name: "java/lang/String".into(),
                         superclass: "java/lang/Object".into(),
                         fields: Vec::new(),
                         methods: HashMap::new(),
@@ -160,7 +165,24 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
                 params,
                 return_type,
                 body: _,
-            } => {}
+            } => {
+                let function_info = FunctionInfo {
+                    class: "<this>".into(),
+                    access: access!(private static),
+                    name: name.clone(),
+                    params: params
+                        .iter()
+                        .map(|(ty, _)| TypeHint::Concrete(ty.clone()))
+                        .collect(),
+                    ret: return_type
+                        .as_ref()
+                        .map_or_else(|| TypeHint::Void, |ret| TypeHint::Concrete(ret.clone())),
+                };
+                global_context.insert(
+                    name.clone(),
+                    CtxItem::Function(vec![Arc::new(function_info)]),
+                );
+            }
         }
     }
     let functions: Vec<_> = syn
@@ -180,16 +202,43 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
         let mut function_context = global_context.child();
         let mut local_var_table = Vec::new();
         for (ty, param) in params {
+            let ty = if let FieldType {
+                ty: InnerFieldType::Object { base, generics },
+                array_depth,
+            } = ty
+            {
+                let Some(resolved) = function_context.get(&base) else {
+                    return Err(format!("Unresolved identifier `{base}`"));
+                };
+                let CtxItem::Class(class_info) = resolved else {
+                    return Err(format!("Expected a class type; got `{resolved:?}`"));
+                };
+                FieldType {
+                    ty: InnerFieldType::Object {
+                        base: class_info.name.clone(),
+                        generics: generics.clone(),
+                    },
+                    array_depth: *array_depth,
+                }
+            } else {
+                ty.clone()
+            };
             function_context.insert(
                 param.clone(),
                 CtxItem::Variable(local_var_table.len(), ty.clone()),
             );
-            local_var_table.push((ty.clone(), param.clone()));
+            local_var_table.push((ty, param.clone()));
         }
 
-        let (body, loc, ty) = interpret_syntax(body, &mut function_context, &mut local_var_table)?;
+        let (mut body, loc, ty) =
+            interpret_syntax(body, &mut function_context, &mut local_var_table)?;
 
         // TODO: make sure type hint matches
+
+        if loc != IRLocation::Stack {
+            body.push(IRStatement::Move(loc, IRLocation::Stack));
+        }
+        body.push(IRStatement::Return);
         ir_functions.push(IRFunction {
             name: name.clone(),
             params: params.clone(),
@@ -277,10 +326,10 @@ fn interpret_syntax(
                 interpret_syntax(lhs, function_context, local_var_table)?;
             let (rhs_out, rhs_loc, rhs_ty) =
                 interpret_syntax(rhs, function_context, local_var_table)?;
-            // TODO: make sure LHS and RHS are compatible with this operator
+            let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
             output.extend(rhs_out);
             output.push(IRStatement::BinaryOperation(lhs_loc, *op, rhs_loc));
-            Ok((output, IRLocation::Stack, lhs_ty))
+            Ok((output, IRLocation::Stack, output_ty))
         }
         Expression::FunctionCall { function, args } => {
             let mut arg_code = Vec::new();
@@ -293,12 +342,12 @@ fn interpret_syntax(
                     arg_code.push(IRStatement::Move(loc, IRLocation::Stack));
                 }
             }
-            // TODO: use arg_types to help resolve the function and include the return type
             let (mut output, method_info) =
                 resolve_function(function, &arg_types, function_context, local_var_table)?;
             output.extend(arg_code);
+            let ret = method_info.ret.clone();
             output.push(IRStatement::Invoke(method_info));
-            Ok((output, IRLocation::Stack, TypeHint::Any))
+            Ok((output, IRLocation::Stack, ret))
         }
         Expression::If {
             condition,
@@ -472,7 +521,20 @@ fn resolve_function(
                     let Some(method_choices) = class.methods.get(id) else {
                         return Err(format!("No function {id} found on class {}", class.name));
                     };
-                    for method in method_choices {}
+                    for method in method_choices {
+                        if method.params.len() != param_types.len() {
+                            continue;
+                        }
+                        if !method
+                            .params
+                            .iter()
+                            .zip(param_types)
+                            .all(|(param, arg)| arg.is_subtype(param))
+                        {
+                            continue;
+                        }
+                        return Ok((Vec::new(), method.clone()));
+                    }
                     return Err(format!(
                         "No function {id} found on class {} that matches type contraints: {:?}",
                         class.name, param_types
@@ -494,8 +556,23 @@ fn resolve_function(
             let CtxItem::Function(func_info) = func_item else {
                 return Err(format!("Expected a function; got {func_item:?}"));
             };
-            todo!("resolve the static function")
-            // Ok((Vec::new(), id.clone()))
+            for func_option in func_info {
+                if func_option.params.len() != param_types.len() {
+                    continue;
+                }
+                if !func_option
+                    .params
+                    .iter()
+                    .zip(param_types)
+                    .all(|(param, arg)| arg.is_subtype(param))
+                {
+                    continue;
+                }
+                return Ok((Vec::new(), func_option.clone()));
+            }
+            Err(format!(
+                "No function `{id}` found for argument types {param_types:?}"
+            ))
         }
         other => Err(format!("`{other:?}` is not a function")),
     }

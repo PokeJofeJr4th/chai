@@ -1,5 +1,5 @@
 import chai.{print, option.*,range};
-import java.lang.{Optional, Integer};
+import java.lang.{Optional, Integer, String};
 
 fn div(float a, float b) -> Optional<float> {
     b == 0.0 ? none() : some(a / b)

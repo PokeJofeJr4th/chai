@@ -8,7 +8,7 @@ use super::types::TypeHint;
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum CtxItem {
-    Function(FunctionInfo),
+    Function(Vec<Arc<FunctionInfo>>),
     Class(ClassInfo),
     Variable(usize, FieldType),
     Field(FieldInfo),
@@ -19,7 +19,7 @@ pub struct ClassInfo {
     pub name: Arc<str>,
     pub superclass: Arc<str>,
     pub fields: Vec<FieldInfo>,
-    pub methods: HashMap<Arc<str>, Vec<FunctionInfo>>,
+    pub methods: HashMap<Arc<str>, Vec<Arc<FunctionInfo>>>,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
