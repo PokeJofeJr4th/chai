@@ -1,8 +1,8 @@
 import chai.{print, option.*,range};
-import java.lang.Optional;
+import java.lang.{Optional, Integer};
 
 fn div(float a, float b) -> Optional<float> {
-    b == 0.0 ? none : some(a / b)
+    b == 0.0 ? none() : some(a / b)
 }
 
 fn div(int a, int b) -> (int, int) {

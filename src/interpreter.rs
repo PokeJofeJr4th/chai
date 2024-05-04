@@ -39,8 +39,14 @@ pub fn resolve_imports(
                 );
             }
             (["chai", "option"], "*") => {
-                context.insert("none".into(), CtxItem::Field);
+                context.insert(
+                    "none".into(),
+                    CtxItem::Function(method!(() -> Object("java/lang/Optional".into()))),
+                );
                 context.insert("some".into(), CtxItem::Function(method!(((Object("java/lang/Object".into()))) -> Object("java/lang/Optional".into()))));
+            }
+            (["java", "lang"], "Integer") => {
+                context.insert("Integer".into(), CtxItem::Class);
             }
             (["java", "lang"], "Optional") => {
                 context.insert("Optional".into(), CtxItem::Class);
@@ -126,7 +132,6 @@ fn interpret_syntax(
                     IRLocation::LocalVar(*var),
                     TypeHint::Concrete(ty.clone()),
                 )),
-                CtxItem::Field => todo!(),
                 _ => Err(format!("Unresolved identifier `{i}`")),
             }
         }
@@ -304,11 +309,15 @@ fn interpret_syntax(
                     (&**function, &args[..])
                 {
                     if &**range_kw == "range" {
-                        let body_symbol = Symbol::new("for.body".into());
+                        let mut loop_context = function_context.child();
+                        let var_idx = local_var_table.len();
+                        local_var_table.push((ty.clone(), var.clone()));
 
+                        let body_symbol = Symbol::new("for.body".into());
+                        loop_context.insert(var.clone(), CtxItem::Variable(var_idx, ty.clone()));
                         // initialize
                         let (mut output, loop_var_loc, loop_var_ty) =
-                            interpret_syntax(start, function_context, local_var_table)?;
+                            interpret_syntax(start, &mut loop_context, local_var_table)?;
                         if loop_var_loc != IRLocation::Stack {
                             output.push(IRStatement::Move(loop_var_loc, IRLocation::Stack));
                         }
@@ -318,7 +327,7 @@ fn interpret_syntax(
                         // TODO
                         // body
                         let (body, body_loc, _body_ty) =
-                            interpret_syntax(body, function_context, local_var_table)?;
+                            interpret_syntax(body, &mut loop_context, local_var_table)?;
                         output.extend(body);
                         if body_loc != IRLocation::Void {
                             return Err(format!(
