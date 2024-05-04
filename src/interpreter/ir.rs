@@ -9,6 +9,8 @@ use crate::{
     types::FieldType,
 };
 
+use super::context::FunctionInfo;
+
 #[derive(Clone, Eq)]
 pub struct Symbol(usize, Arc<str>);
 
@@ -61,7 +63,7 @@ pub struct IRFunction {
 pub enum IRStatement {
     Push(IRLocation),
     Pop,
-    Invoke(Arc<str>),
+    Invoke(Arc<FunctionInfo>),
     Branch(IRLocation, Symbol),
     Jump(Symbol),
     Label(Symbol),

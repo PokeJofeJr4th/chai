@@ -1,27 +1,42 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    sync::Arc,
-};
+use std::{collections::HashMap, hash::Hash, sync::Arc};
 
-use jvmrs_lib::MethodDescriptor;
+use jvmrs_lib::AccessFlags;
 
 use crate::types::FieldType;
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+use super::types::TypeHint;
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum CtxItem {
-    Function(MethodDescriptor),
+    Function(FunctionInfo),
     Class(ClassInfo),
     Variable(usize, FieldType),
-    Field,
+    Field(FieldInfo),
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ClassInfo {
     pub name: Arc<str>,
     pub superclass: Arc<str>,
-    pub fields: Vec<(Arc<str>, FieldType)>,
-    pub methods: HashMap<Arc<str>, Vec<MethodDescriptor>>,
+    pub fields: Vec<FieldInfo>,
+    pub methods: HashMap<Arc<str>, Vec<FunctionInfo>>,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct FunctionInfo {
+    pub class: Arc<str>,
+    pub access: AccessFlags,
+    pub name: Arc<str>,
+    pub params: Vec<TypeHint>,
+    pub ret: TypeHint,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct FieldInfo {
+    pub class: Arc<str>,
+    pub access: AccessFlags,
+    pub name: Arc<str>,
+    pub ty: TypeHint,
 }
 
 impl Hash for ClassInfo {
