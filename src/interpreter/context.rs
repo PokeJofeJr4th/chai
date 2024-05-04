@@ -5,25 +5,27 @@ use std::{
 
 use jvmrs_lib::MethodDescriptor;
 
+use crate::types::FieldType;
+
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub enum CtxItem {
     Function(MethodDescriptor),
     Class,
-    Variable(usize),
+    Variable(usize, FieldType),
     Field,
 }
 
 pub struct Context {
-    map: HashMap<Arc<str>, HashSet<CtxItem>>,
+    map: HashMap<Arc<str>, CtxItem>,
 }
 
 impl Context {
-    pub fn insert(&mut self, k: Arc<str>, v: CtxItem) -> bool {
-        self.map.entry(k).or_default().insert(v)
+    pub fn insert(&mut self, k: Arc<str>, v: CtxItem) -> Option<CtxItem> {
+        self.map.insert(k, v)
     }
 
     #[must_use]
-    pub fn get(&self, k: &str) -> Option<&HashSet<CtxItem>> {
+    pub fn get(&self, k: &str) -> Option<&CtxItem> {
         self.map.get(k)
     }
 

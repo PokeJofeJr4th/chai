@@ -1,6 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 pub enum InnerFieldType {
     Boolean,
     Byte,
@@ -50,7 +50,7 @@ impl Debug for InnerFieldType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 pub struct FieldType {
     pub ty: InnerFieldType,
     pub array_depth: usize,
