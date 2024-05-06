@@ -25,9 +25,11 @@ fn fizzbuzz(int num) {
 
 fn main(String[] args) {
     let Result<int> parseResult = try Integer.parseInt(args[0]);
-    if parseResult {
+    print("Result: " + parseResult);
+    "if parseResult {
         fizzbuzz(parseResult);
     } else {
-        print("Error " + parseResult);
-    }
+        print(\"Error \" + parseResult);
+    }";
+    fizzbuzz(24);
 }

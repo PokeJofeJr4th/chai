@@ -34,8 +34,14 @@ impl TypeHint {
         if super_ty == &Self::Integral {
             return self.is_integral();
         }
+        if self == &Self::Integral {
+            return super_ty.is_integral();
+        }
         if super_ty == &Self::Floating {
             return self.is_floating();
+        }
+        if self == &Self::Floating {
+            return super_ty.is_floating();
         }
         if let (Self::Tuple(this), Self::Tuple(other)) = (self, super_ty) {
             return this.len() == other.len()
@@ -97,6 +103,7 @@ impl TypeHint {
         }
     }
 
+    /// # Errors
     pub fn intersect(&self, other: &Self) -> Result<Self, String> {
         if self == other {
             return Ok(self.clone());
@@ -118,6 +125,7 @@ impl TypeHint {
         ))
     }
 
+    #[must_use]
     pub fn is_string(&self) -> bool {
         let Self::Concrete(FieldType {
             ty: InnerFieldType::Object { base, generics },
@@ -126,10 +134,11 @@ impl TypeHint {
         else {
             return false;
         };
-        return generics.is_empty() && &**base == "java/lang/String";
+        generics.is_empty() && &**base == "java/lang/String"
     }
 }
 
+/// # Errors
 pub fn operate_types(
     lhs: &TypeHint,
     op: BinaryOperator,

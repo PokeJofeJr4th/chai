@@ -329,7 +329,15 @@ fn interpret_syntax(
             let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
             output.extend(rhs_out);
             output.push(IRStatement::BinaryOperation(lhs_loc, *op, rhs_loc));
-            Ok((output, IRLocation::Stack, output_ty))
+            Ok((
+                output,
+                if output_ty == TypeHint::Void {
+                    IRLocation::Void
+                } else {
+                    IRLocation::Stack
+                },
+                output_ty,
+            ))
         }
         Expression::FunctionCall { function, args } => {
             let mut arg_code = Vec::new();
