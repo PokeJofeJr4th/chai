@@ -4,7 +4,7 @@ use jvmrs_lib::access;
 
 use crate::{
     parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel},
-    types::{FieldType, InnerFieldType},
+    types::{IRFieldType, InnerFieldType},
 };
 
 use self::{
@@ -201,19 +201,20 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
     for (name, params, return_type, body) in &functions {
         let mut function_context = global_context.child();
         let mut local_var_table = Vec::new();
+        let mut param_types = Vec::new();
         for (ty, param) in params {
-            let ty = if let FieldType {
+            let ty = if let IRFieldType {
                 ty: InnerFieldType::Object { base, generics },
                 array_depth,
             } = ty
             {
-                let Some(resolved) = function_context.get(&base) else {
+                let Some(resolved) = function_context.get(base) else {
                     return Err(format!("Unresolved identifier `{base}`"));
                 };
                 let CtxItem::Class(class_info) = resolved else {
                     return Err(format!("Expected a class type; got `{resolved:?}`"));
                 };
-                FieldType {
+                IRFieldType {
                     ty: InnerFieldType::Object {
                         base: class_info.name.clone(),
                         generics: generics.clone(),
@@ -223,6 +224,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
             } else {
                 ty.clone()
             };
+            param_types.push(ty.clone());
             function_context.insert(
                 param.clone(),
                 CtxItem::Variable(local_var_table.len(), ty.clone()),
@@ -241,7 +243,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
         body.push(IRStatement::Return);
         ir_functions.push(IRFunction {
             name: name.clone(),
-            params: params.clone(),
+            params: param_types,
             ret: return_type.clone(),
             body,
         });
@@ -253,7 +255,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
 fn interpret_syntax(
     syn: &Expression,
     function_context: &mut Context,
-    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
+    local_var_table: &mut Vec<(IRFieldType, Arc<str>)>,
 ) -> Result<(Vec<IRStatement>, IRLocation, TypeHint), String> {
     match syn {
         Expression::Ident(i) => {
@@ -494,7 +496,7 @@ fn ir_branch(
     condition: &Expression,
     jump: &Symbol,
     context: &mut Context,
-    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
+    local_var_table: &mut Vec<(IRFieldType, Arc<str>)>,
 ) -> Result<Vec<IRStatement>, String> {
     match condition {
         Expression::BinaryOperation(lhs, BinaryOperator::Or, rhs) => {
@@ -517,7 +519,7 @@ fn resolve_function(
     function: &Expression,
     param_types: &[TypeHint],
     context: &mut Context,
-    local_var_table: &mut Vec<(FieldType, Arc<str>)>,
+    local_var_table: &mut Vec<(IRFieldType, Arc<str>)>,
 ) -> Result<(Vec<IRStatement>, Arc<FunctionInfo>), String> {
     match function {
         Expression::BinaryOperation(obj, BinaryOperator::Dot, func) => {

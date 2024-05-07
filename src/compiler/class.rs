@@ -3,14 +3,25 @@ use std::{
     sync::Arc,
 };
 
-use jvmrs_lib::{AccessFlags, ClassVersion, Constant, FieldType, MethodDescriptor};
+use jvmrs_lib::{access, AccessFlags, ClassVersion, Constant, MethodDescriptor};
 
+use super::instruction::Instruction;
+
+#[derive(Debug)]
 pub struct FieldInfo {}
 
-pub struct MethodInfo {}
+#[derive(Debug)]
+pub struct MethodInfo {
+    pub name: Arc<str>,
+    pub ty: MethodDescriptor,
+    pub body: Vec<Instruction>,
+    pub access: AccessFlags,
+}
 
+#[derive(Debug)]
 pub enum AttributeInfo {}
 
+#[derive(Debug)]
 pub struct Class {
     access_flags: AccessFlags,
     constant_pool: Vec<Constant>,
@@ -24,23 +35,80 @@ pub struct Class {
 }
 
 impl Class {
+    pub fn new(this_class: Arc<str>, super_class: Arc<str>) -> Self {
+        Self {
+            access_flags: access!(public),
+            constant_pool: Vec::new(),
+            version: ClassVersion {
+                minor_version: 65,
+                major_version: 0,
+            },
+            this_class,
+            super_class,
+            interfaces: Vec::new(),
+            fields: Vec::new(),
+            methods: Vec::new(),
+            attributes: Vec::new(),
+        }
+    }
+
+    pub fn register_method(&mut self, method: MethodInfo) {
+        Self::register_constant(
+            &mut self.constant_pool,
+            Constant::String(method.name.clone()),
+        );
+        Self::register_constant(&mut self.constant_pool, Constant::String(method.ty.repr()));
+        self.methods.push(method);
+    }
+
+    #[allow(clippy::too_many_lines)]
     pub fn write(&mut self, writer: &mut impl Write) -> Result<(), Error> {
-        let this_class = self.register_constant(Constant::ClassRef(self.this_class.clone())) as u16;
-        let super_class =
-            self.register_constant(Constant::ClassRef(self.super_class.clone())) as u16;
+        let this_class = Self::register_constant(
+            &mut self.constant_pool,
+            Constant::ClassRef(self.this_class.clone()),
+        ) as u16;
+        let super_class = Self::register_constant(
+            &mut self.constant_pool,
+            Constant::ClassRef(self.super_class.clone()),
+        ) as u16;
         let interfaces: Vec<u16> = self
             .interfaces
             .clone()
             .into_iter()
-            .map(|int| self.register_constant(Constant::ClassRef(int)) as u16)
+            .map(|int| {
+                Self::register_constant(&mut self.constant_pool, Constant::ClassRef(int)) as u16
+            })
             .collect();
+        let mut methods: Vec<(AccessFlags, u16, u16, Vec<()>)> = self
+            .methods
+            .iter()
+            .map(|method| {
+                (
+                    method.access,
+                    Self::register_constant(
+                        &mut self.constant_pool,
+                        Constant::String(method.name.clone()),
+                    ) as u16,
+                    Self::register_constant(
+                        &mut self.constant_pool,
+                        Constant::String(method.ty.repr()),
+                    ) as u16,
+                    Vec::new(),
+                )
+            })
+            .collect();
+
+        let x = &self;
 
         writer.write_all(&[0xCA, 0xFE, 0xBA, 0xBE])?;
         writer.write_all(&self.version.major_version.to_be_bytes())?;
         writer.write_all(&self.version.minor_version.to_be_bytes())?;
 
         writer.write_all(&(self.constant_pool.len() as u16 + 1).to_be_bytes())?;
-        // TODO: write the constants
+        for constant in &self.constant_pool {
+            self.write_constant(writer, constant)?;
+        }
+
         writer.write_all(&self.access_flags.0.to_be_bytes())?;
         writer.write_all(&this_class.to_be_bytes())?;
         writer.write_all(&super_class.to_be_bytes())?;
@@ -50,42 +118,54 @@ impl Class {
         }
         writer.write_all(&(self.fields.len() as u16).to_be_bytes())?;
         // TODO: write the fields
-        writer.write_all(&(self.methods.len() as u16).to_be_bytes())?;
-        // TODO: write the methods
+        writer.write_all(&(methods.len() as u16).to_be_bytes())?;
+
+        for (access, name, ty, attrs) in methods {
+            writer.write_all(&access.0.to_be_bytes())?;
+            writer.write_all(&name.to_be_bytes())?;
+            writer.write_all(&ty.to_be_bytes())?;
+            writer.write_all(&(attrs.len() as u16).to_be_bytes())?;
+            // TODO: write method attributes
+        }
+
         writer.write_all(&(self.attributes.len() as u16).to_be_bytes())?;
         // TODO: write all the attributes
+        // forbid self-modification for the writing stretch
+        let _ = x;
         Ok(())
     }
 
-    pub fn register_constant(&mut self, constant: Constant) -> usize {
-        if let Some(idx) = self.constant_pool.iter().position(|c| c == &constant) {
-            return idx;
+    pub fn register_constant(constant_pool: &mut Vec<Constant>, constant: Constant) -> usize {
+        if let Some(idx) = constant_pool.iter().position(|c| c == &constant) {
+            return idx + 1;
         }
-        let idx = self.constant_pool.len();
         match &constant {
             Constant::ClassRef(class_name) => {
-                self.register_constant(Constant::String(class_name.clone()));
+                Self::register_constant(constant_pool, Constant::String(class_name.clone()));
             }
             Constant::StringRef(str) => {
-                self.register_constant(Constant::String(str.clone()));
+                Self::register_constant(constant_pool, Constant::String(str.clone()));
             }
             Constant::FieldRef {
                 class,
                 name,
                 field_type,
             } => {
-                self.register_constant(Constant::ClassRef(class.clone()));
-                self.register_constant(Constant::NameTypeDescriptor {
-                    name: name.clone(),
-                    type_descriptor: field_type.repr(),
-                });
+                Self::register_constant(constant_pool, Constant::ClassRef(class.clone()));
+                Self::register_constant(
+                    constant_pool,
+                    Constant::NameTypeDescriptor {
+                        name: name.clone(),
+                        type_descriptor: field_type.repr(),
+                    },
+                );
             }
             Constant::NameTypeDescriptor {
                 name,
                 type_descriptor,
             } => {
-                self.register_constant(Constant::String(name.clone()));
-                self.register_constant(Constant::String(type_descriptor.clone()));
+                Self::register_constant(constant_pool, Constant::String(name.clone()));
+                Self::register_constant(constant_pool, Constant::String(type_descriptor.clone()));
             }
             Constant::InterfaceRef {
                 class,
@@ -97,23 +177,29 @@ impl Class {
                 name,
                 method_type,
             } => {
-                self.register_constant(Constant::ClassRef(class.clone()));
-                self.register_constant(Constant::NameTypeDescriptor {
-                    name: name.clone(),
-                    type_descriptor: method_type.repr(),
-                });
+                Self::register_constant(constant_pool, Constant::ClassRef(class.clone()));
+                Self::register_constant(
+                    constant_pool,
+                    Constant::NameTypeDescriptor {
+                        name: name.clone(),
+                        type_descriptor: method_type.repr(),
+                    },
+                );
             }
             Constant::MethodType(ty) => {
-                self.register_constant(Constant::String(ty.repr()));
+                Self::register_constant(constant_pool, Constant::String(ty.repr()));
             }
             _ => {}
         }
-        self.constant_pool.push(constant);
-        idx
+        constant_pool.push(constant);
+        constant_pool.len()
     }
 
     fn get_constant(&self, constant: &Constant) -> Option<usize> {
-        self.constant_pool.iter().position(|x| x == constant)
+        self.constant_pool
+            .iter()
+            .position(|x| x == constant)
+            .map(|x| x + 1)
     }
 
     fn write_constant(&self, writer: &mut impl Write, constant: &Constant) -> Result<(), Error> {
@@ -153,9 +239,7 @@ impl Class {
                 class,
                 name,
                 field_type,
-            } => {
-                
-            },
+            } => todo!(),
             Constant::MethodRef {
                 class,
                 name,

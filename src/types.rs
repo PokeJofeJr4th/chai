@@ -1,5 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
+use jvmrs_lib::FieldType;
+
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub enum InnerFieldType {
     Boolean,
@@ -12,9 +14,9 @@ pub enum InnerFieldType {
     Char,
     Object {
         base: Arc<str>,
-        generics: Vec<FieldType>,
+        generics: Vec<IRFieldType>,
     },
-    Tuple(Vec<FieldType>),
+    Tuple(Vec<IRFieldType>),
 }
 
 impl Debug for InnerFieldType {
@@ -51,12 +53,36 @@ impl Debug for InnerFieldType {
 }
 
 #[derive(Clone, PartialEq, Hash, Eq)]
-pub struct FieldType {
+pub struct IRFieldType {
     pub ty: InnerFieldType,
     pub array_depth: usize,
 }
 
-impl Debug for FieldType {
+impl IRFieldType {
+    #[must_use]
+    pub fn to_field_type(&self) -> FieldType {
+        let mut ty = match &self.ty {
+            InnerFieldType::Boolean => FieldType::Boolean,
+            InnerFieldType::Byte => FieldType::Byte,
+            InnerFieldType::Short => FieldType::Short,
+            InnerFieldType::Int => FieldType::Int,
+            InnerFieldType::Long => FieldType::Long,
+            InnerFieldType::Float => FieldType::Float,
+            InnerFieldType::Double => FieldType::Double,
+            InnerFieldType::Char => FieldType::Char,
+            InnerFieldType::Object { base, generics: _ } => FieldType::Object(base.clone()),
+            InnerFieldType::Tuple(_) => {
+                FieldType::Array(Box::new(FieldType::Object("java/lang/Object".into())))
+            }
+        };
+        for _ in 0..self.array_depth {
+            ty = FieldType::Array(Box::new(ty));
+        }
+        ty
+    }
+}
+
+impl Debug for IRFieldType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.ty)?;
         for _ in 0..self.array_depth {
@@ -66,7 +92,7 @@ impl Debug for FieldType {
     }
 }
 
-impl From<InnerFieldType> for FieldType {
+impl From<InnerFieldType> for IRFieldType {
     fn from(value: InnerFieldType) -> Self {
         Self {
             ty: value,

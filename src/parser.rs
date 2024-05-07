@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use crate::{
     lexer::token::Token,
     parser::syntax::{BinaryOperator, UnaryOperator},
-    types::{FieldType, InnerFieldType},
+    types::{IRFieldType, InnerFieldType},
 };
 
 use self::syntax::{Expression, ImportTree, TopLevel};
@@ -144,7 +144,7 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
     })
 }
 
-fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<FieldType, String> {
+fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRFieldType, String> {
     let ty = match_token!(src {
         Token::Ident(id) if &*id == "boolean" => Ok(InnerFieldType::Boolean),
         Token::Ident(id) if &*id == "byte" => Ok(InnerFieldType::Byte),
@@ -200,7 +200,7 @@ fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<FieldTy
         let_token!(src => Token::RSquare, "`]`");
         array_depth += 1;
     }
-    Ok(FieldType { ty, array_depth })
+    Ok(IRFieldType { ty, array_depth })
 }
 
 const BINARY_OPS: &[&[(Token, BinaryOperator)]] = &[

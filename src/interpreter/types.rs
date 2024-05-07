@@ -1,6 +1,6 @@
 use crate::{
     parser::syntax::BinaryOperator,
-    types::{FieldType, InnerFieldType},
+    types::{IRFieldType, InnerFieldType},
 };
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
@@ -9,7 +9,7 @@ pub enum TypeHint {
     Void,
     Integral,
     Floating,
-    Concrete(FieldType),
+    Concrete(IRFieldType),
     Tuple(Vec<TypeHint>),
 }
 
@@ -19,7 +19,7 @@ impl TypeHint {
         if super_ty == &Self::Any || self == super_ty {
             return true;
         }
-        if let Self::Concrete(FieldType {
+        if let Self::Concrete(IRFieldType {
             ty: InnerFieldType::Object { base, generics },
             array_depth: 0,
         }) = super_ty
@@ -58,7 +58,7 @@ impl TypeHint {
         matches!(
             self,
             Self::Integral
-                | Self::Concrete(FieldType {
+                | Self::Concrete(IRFieldType {
                     ty: InnerFieldType::Byte
                         | InnerFieldType::Short
                         | InnerFieldType::Int
@@ -66,7 +66,7 @@ impl TypeHint {
                     array_depth: 0
                 })
         ) || {
-            if let Self::Concrete(FieldType {
+            if let Self::Concrete(IRFieldType {
                 ty: InnerFieldType::Object { base, generics: _ },
                 array_depth: 0,
             }) = self
@@ -86,12 +86,12 @@ impl TypeHint {
         matches!(
             self,
             Self::Floating
-                | Self::Concrete(FieldType {
+                | Self::Concrete(IRFieldType {
                     ty: InnerFieldType::Float | InnerFieldType::Double,
                     array_depth: 0
                 })
         ) || {
-            if let Self::Concrete(FieldType {
+            if let Self::Concrete(IRFieldType {
                 ty: InnerFieldType::Object { base, generics: _ },
                 array_depth: 0,
             }) = self
@@ -127,7 +127,7 @@ impl TypeHint {
 
     #[must_use]
     pub fn is_string(&self) -> bool {
-        let Self::Concrete(FieldType {
+        let Self::Concrete(IRFieldType {
             ty: InnerFieldType::Object { base, generics },
             array_depth: 0,
         }) = self
@@ -162,13 +162,13 @@ pub fn operate_types(
             Ok(TypeHint::Concrete(InnerFieldType::Boolean.into()))
         }
         (
-            TypeHint::Concrete(FieldType {
+            TypeHint::Concrete(IRFieldType {
                 ty,
                 array_depth: array_depth @ 1..,
             }),
             BinaryOperator::Index,
             rhs,
-        ) if rhs.is_integral() => Ok(TypeHint::Concrete(FieldType {
+        ) if rhs.is_integral() => Ok(TypeHint::Concrete(IRFieldType {
             ty: ty.clone(),
             array_depth: *array_depth - 1,
         })),

@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     parser::syntax::{BinaryOperator, UnaryOperator},
-    types::FieldType,
+    types::IRFieldType,
 };
 
 use super::context::FunctionInfo;
@@ -54,8 +54,8 @@ impl Symbol {
 #[derive(Debug)]
 pub struct IRFunction {
     pub name: Arc<str>,
-    pub params: Vec<(FieldType, Arc<str>)>,
-    pub ret: Option<FieldType>,
+    pub params: Vec<IRFieldType>,
+    pub ret: Option<IRFieldType>,
     pub body: Vec<IRStatement>,
 }
 

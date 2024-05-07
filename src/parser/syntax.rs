@@ -1,6 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use crate::types::FieldType;
+use crate::types::IRFieldType;
 
 pub struct ImportTree {
     pub current: Arc<str>,
@@ -29,8 +29,8 @@ pub enum TopLevel {
     Import(ImportTree),
     Function {
         name: Arc<str>,
-        params: Vec<(FieldType, Arc<str>)>,
-        return_type: Option<FieldType>,
+        params: Vec<(IRFieldType, Arc<str>)>,
+        return_type: Option<IRFieldType>,
         body: Expression,
     },
 }
@@ -58,7 +58,7 @@ pub enum Expression {
         else_body: Option<Box<Expression>>,
     },
     Let {
-        ty: FieldType,
+        ty: IRFieldType,
         var: Arc<str>,
         value: Box<Expression>,
     },
@@ -68,7 +68,7 @@ pub enum Expression {
         condition: Option<Box<Expression>>,
     },
     For {
-        ty: FieldType,
+        ty: IRFieldType,
         var: Arc<str>,
         range: Box<Expression>,
         body: Box<Expression>,

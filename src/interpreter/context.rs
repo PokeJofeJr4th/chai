@@ -2,7 +2,7 @@ use std::{collections::HashMap, hash::Hash, sync::Arc};
 
 use jvmrs_lib::AccessFlags;
 
-use crate::types::FieldType;
+use crate::types::IRFieldType;
 
 use super::types::TypeHint;
 
@@ -10,7 +10,7 @@ use super::types::TypeHint;
 pub enum CtxItem {
     Function(Vec<Arc<FunctionInfo>>),
     Class(ClassInfo),
-    Variable(usize, FieldType),
+    Variable(usize, IRFieldType),
     Field(FieldInfo),
 }
 
