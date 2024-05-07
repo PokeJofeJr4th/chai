@@ -53,30 +53,22 @@ impl Class {
     }
 
     pub fn register_method(&mut self, method: MethodInfo) {
-        Self::register_constant(
-            &mut self.constant_pool,
-            Constant::String(method.name.clone()),
-        );
-        Self::register_constant(&mut self.constant_pool, Constant::String(method.ty.repr()));
+        self.register_constant(Constant::String(method.name.clone()));
+        self.register_constant(Constant::String(method.ty.repr()));
         self.methods.push(method);
     }
 
     #[allow(clippy::too_many_lines)]
     pub fn write(&mut self, writer: &mut impl Write) -> Result<(), Error> {
-        let this_class = Self::register_constant(
-            &mut self.constant_pool,
-            Constant::ClassRef(self.this_class.clone()),
-        ) as u16;
-        let super_class = Self::register_constant(
-            &mut self.constant_pool,
-            Constant::ClassRef(self.super_class.clone()),
-        ) as u16;
+        let this_class = self.register_constant(Constant::ClassRef(self.this_class.clone())) as u16;
+        let super_class =
+            self.register_constant(Constant::ClassRef(self.super_class.clone())) as u16;
         let interfaces: Vec<u16> = self
             .interfaces
             .clone()
             .into_iter()
             .map(|int| {
-                Self::register_constant(&mut self.constant_pool, Constant::ClassRef(int)) as u16
+                Self::insert_constant(&mut self.constant_pool, Constant::ClassRef(int)) as u16
             })
             .collect();
         let mut methods: Vec<(AccessFlags, u16, u16, Vec<()>)> = self
@@ -85,11 +77,11 @@ impl Class {
             .map(|method| {
                 (
                     method.access,
-                    Self::register_constant(
+                    Self::insert_constant(
                         &mut self.constant_pool,
                         Constant::String(method.name.clone()),
                     ) as u16,
-                    Self::register_constant(
+                    Self::insert_constant(
                         &mut self.constant_pool,
                         Constant::String(method.ty.repr()),
                     ) as u16,
@@ -135,24 +127,28 @@ impl Class {
         Ok(())
     }
 
-    pub fn register_constant(constant_pool: &mut Vec<Constant>, constant: Constant) -> usize {
+    pub fn register_constant(&mut self, constant: Constant) -> usize {
+        Self::insert_constant(&mut self.constant_pool, constant)
+    }
+
+    pub fn insert_constant(constant_pool: &mut Vec<Constant>, constant: Constant) -> usize {
         if let Some(idx) = constant_pool.iter().position(|c| c == &constant) {
             return idx + 1;
         }
         match &constant {
             Constant::ClassRef(class_name) => {
-                Self::register_constant(constant_pool, Constant::String(class_name.clone()));
+                Self::insert_constant(constant_pool, Constant::String(class_name.clone()));
             }
             Constant::StringRef(str) => {
-                Self::register_constant(constant_pool, Constant::String(str.clone()));
+                Self::insert_constant(constant_pool, Constant::String(str.clone()));
             }
             Constant::FieldRef {
                 class,
                 name,
                 field_type,
             } => {
-                Self::register_constant(constant_pool, Constant::ClassRef(class.clone()));
-                Self::register_constant(
+                Self::insert_constant(constant_pool, Constant::ClassRef(class.clone()));
+                Self::insert_constant(
                     constant_pool,
                     Constant::NameTypeDescriptor {
                         name: name.clone(),
@@ -164,8 +160,8 @@ impl Class {
                 name,
                 type_descriptor,
             } => {
-                Self::register_constant(constant_pool, Constant::String(name.clone()));
-                Self::register_constant(constant_pool, Constant::String(type_descriptor.clone()));
+                Self::insert_constant(constant_pool, Constant::String(name.clone()));
+                Self::insert_constant(constant_pool, Constant::String(type_descriptor.clone()));
             }
             Constant::InterfaceRef {
                 class,
@@ -177,8 +173,8 @@ impl Class {
                 name,
                 method_type,
             } => {
-                Self::register_constant(constant_pool, Constant::ClassRef(class.clone()));
-                Self::register_constant(
+                Self::insert_constant(constant_pool, Constant::ClassRef(class.clone()));
+                Self::insert_constant(
                     constant_pool,
                     Constant::NameTypeDescriptor {
                         name: name.clone(),
@@ -187,7 +183,7 @@ impl Class {
                 );
             }
             Constant::MethodType(ty) => {
-                Self::register_constant(constant_pool, Constant::String(ty.repr()));
+                Self::insert_constant(constant_pool, Constant::String(ty.repr()));
             }
             _ => {}
         }
