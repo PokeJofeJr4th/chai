@@ -8,6 +8,7 @@ pub mod interpreter;
 pub mod lexer;
 pub mod parser;
 pub mod types;
+pub mod compiler;
 
 #[derive(Parser)]
 struct Args {
