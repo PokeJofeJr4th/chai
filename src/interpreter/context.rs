@@ -27,8 +27,8 @@ pub struct FunctionInfo {
     pub class: Arc<str>,
     pub access: AccessFlags,
     pub name: Arc<str>,
-    pub params: Vec<TypeHint>,
-    pub ret: TypeHint,
+    pub params: Vec<IRFieldType>,
+    pub ret: IRFieldType,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

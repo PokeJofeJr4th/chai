@@ -59,6 +59,21 @@ pub struct IRFieldType {
 }
 
 impl IRFieldType {
+    pub const VOID: Self = Self {
+        ty: InnerFieldType::Tuple(Vec::new()),
+        array_depth: 0,
+    };
+
+    pub fn string() -> Self {
+        Self {
+            ty: InnerFieldType::Object {
+                base: "java/lang/String".into(),
+                generics: Vec::new(),
+            },
+            array_depth: 0,
+        }
+    }
+
     #[must_use]
     pub fn to_field_type(&self) -> FieldType {
         let mut ty = match &self.ty {
@@ -79,6 +94,14 @@ impl IRFieldType {
             ty = FieldType::Array(Box::new(ty));
         }
         ty
+    }
+
+    pub fn is_void(&self) -> bool {
+        self.array_depth == 0
+            && match &self.ty {
+                InnerFieldType::Tuple(e) if e.is_empty() => true,
+                _ => false,
+            }
     }
 }
 

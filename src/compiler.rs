@@ -54,10 +54,13 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             IRStatement::Jump(_) => todo!(),
             IRStatement::Label(_) => todo!(),
             IRStatement::Move(_, _) => todo!(),
-            IRStatement::BinaryOperation(_, _, _) => todo!(),
+            // IRStatement::BinaryOperation(lhs, op, rhs) => {
+                
+            // },
             IRStatement::UnaryOperation(_, _) => todo!(),
             IRStatement::MakeTuple(_) => todo!(),
             IRStatement::Return => todo!(),
+            other => return Err(format!("Unimplemented instruction: {other:?}"))
         }
     }
 

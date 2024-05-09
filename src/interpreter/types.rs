@@ -136,6 +136,23 @@ impl TypeHint {
         };
         generics.is_empty() && &**base == "java/lang/String"
     }
+
+    pub fn as_concrete(self) -> IRFieldType {
+        match self {
+            TypeHint::Any => InnerFieldType::Object {
+                base: "java/lang/Object".into(),
+                generics: Vec::new(),
+            }
+            .into(),
+            TypeHint::Void => IRFieldType::VOID,
+            TypeHint::Integral => InnerFieldType::Int.into(),
+            TypeHint::Floating => InnerFieldType::Float.into(),
+            TypeHint::Concrete(c) => c,
+            TypeHint::Tuple(tup) => {
+                InnerFieldType::Tuple(tup.into_iter().map(Self::as_concrete).collect()).into()
+            }
+        }
+    }
 }
 
 /// # Errors

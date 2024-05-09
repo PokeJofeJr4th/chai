@@ -80,6 +80,8 @@ pub enum IRLocation {
     Void,
     LocalVar(usize),
     String(Arc<str>),
-    Int(i64),
-    Float(f64),
+    Int(i32),
+    Long(i64),
+    Float(f32),
+    Double(f64),
 }
