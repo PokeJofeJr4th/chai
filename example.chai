@@ -24,12 +24,8 @@ fn fizzbuzz(int num) {
 }
 
 fn main(String[] args) {
-    let Result<int> parseResult = try Integer.parseInt(args[0]);
-    print("Result: " + parseResult);
-    "if parseResult {
-        fizzbuzz(parseResult);
-    } else {
-        print(\"Error \" + parseResult);
-    }";
-    fizzbuzz(24);
+    let int res = Integer.parseInt(args[0]);
+    print(res);
+    "fizzbuzz(res);
+    print(div(res, 10))";
 }

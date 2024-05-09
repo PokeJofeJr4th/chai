@@ -203,7 +203,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
             } = ty
             {
                 let Some(resolved) = function_context.get(base) else {
-                    return Err(format!("Unresolved identifier `{base}`"));
+                    return Err(format!("Unresolved identifier `{base}`; expected a type"));
                 };
                 let CtxItem::Class(class_info) = resolved else {
                     return Err(format!("Expected a class type; got `{resolved:?}`"));
@@ -258,7 +258,7 @@ fn type_hint(
     match syn {
         Expression::Ident(i) => {
             let Some(item) = function_context.get(i) else {
-                return Err(format!("Unresolved Identifier `{i}`"));
+                return Err(format!("Unresolved Identifier `{i}`; expected an expression"));
             };
             match item {
                 CtxItem::Variable(_, ty) => Ok(TypeHint::Concrete(ty.clone())),
@@ -385,7 +385,7 @@ fn interpret_syntax(
                         ))
                     }
                 }
-                _ => Err(format!("Unresolved identifier `{i}`")),
+                _ => Err(format!("Unresolved identifier `{i}`; expected a variable")),
             }
         }
         (
