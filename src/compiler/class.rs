@@ -29,6 +29,7 @@ impl AttributeInfo {
                 .unwrap() as u16)
                 .to_be_bytes(),
         )?;
+        writer.write_all(&(self.info.len() as u32).to_be_bytes())?;
         writer.write_all(&self.info)?;
         Ok(())
     }

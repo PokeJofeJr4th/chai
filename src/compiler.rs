@@ -36,8 +36,17 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
 
     let mut code = Vec::new();
 
-    // max stack, max locals
-    code.extend([0u8, 0u8, 0u8, 0u8]);
+    // max stack
+    code.extend(0u16.to_be_bytes());
+    // max locals
+    code.extend(
+        (func
+            .locals
+            .iter()
+            .map(|loc| loc.to_field_type().get_size())
+            .sum::<usize>() as u16)
+            .to_be_bytes(),
+    );
 
     // code_length
     // code bytes
