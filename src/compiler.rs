@@ -5,13 +5,13 @@ use jvmrs_lib::{access, Constant, FieldType, MethodDescriptor};
 use crate::{
     interpreter::{
         context::FunctionInfo,
-        ir::{IRFunction, IRExpression, IRStatement, Symbol},
+        ir::{IRExpression, IRFunction, IRStatement, Symbol},
     },
     types::IRFieldType,
 };
 
 use self::{
-    class::{Class, MethodInfo},
+    class::{AttributeInfo, Class, MethodInfo},
     instruction::{Const, Instruction},
 };
 
@@ -31,8 +31,26 @@ pub fn compile(syn: Vec<IRFunction>) -> Result<Class, String> {
 }
 
 fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, String> {
-    let mut body = Vec::new();
+    let mut body: Vec<Instruction> = Vec::new();
     let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
+
+    let mut code = Vec::new();
+
+    // max stack, max locals
+    code.extend([0u8, 0u8, 0u8, 0u8]);
+
+    // code_length
+    // code bytes
+    let mut code_bytes = Vec::new();
+    for instr in body {
+        instr.write(&mut code_bytes);
+    }
+    code.extend((code_bytes.len() as u32).to_be_bytes());
+    code.extend(code_bytes);
+    // exception table
+    code.extend([0, 0]);
+    // attributes
+    code.extend([0, 0]);
 
     Ok(MethodInfo {
         name: func.name,
@@ -46,6 +64,9 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             parameters: func.params.into_iter().map(|a| a.to_field_type()).collect(),
             return_type: func.ret.as_ref().map(IRFieldType::to_field_type),
         },
-        body,
+        attributes: vec![AttributeInfo {
+            name: "Code".into(),
+            info: code,
+        }],
     })
 }
