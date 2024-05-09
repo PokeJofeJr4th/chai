@@ -2,6 +2,8 @@ use std::{fmt::Debug, sync::Arc};
 
 use jvmrs_lib::FieldType;
 
+use crate::compiler::instruction::PrimitiveType;
+
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub enum InnerFieldType {
     Boolean,
@@ -106,6 +108,25 @@ impl IRFieldType {
             ty = FieldType::Array(Box::new(ty));
         }
         ty
+    }
+
+    pub fn to_primitive(&self) -> PrimitiveType {
+        if self.array_depth > 0 {
+            PrimitiveType::Reference
+        } else {
+            match &self.ty {
+                InnerFieldType::Boolean => PrimitiveType::Boolean,
+                InnerFieldType::Byte => PrimitiveType::Byte,
+                InnerFieldType::Short => PrimitiveType::Short,
+                InnerFieldType::Int => PrimitiveType::Int,
+                InnerFieldType::Long => PrimitiveType::Long,
+                InnerFieldType::Float => PrimitiveType::Float,
+                InnerFieldType::Double => PrimitiveType::Double,
+                InnerFieldType::Char => PrimitiveType::Char,
+                InnerFieldType::Object { .. } => PrimitiveType::Reference,
+                InnerFieldType::Tuple(_) => PrimitiveType::Reference,
+            }
+        }
     }
 
     pub fn is_void(&self) -> bool {

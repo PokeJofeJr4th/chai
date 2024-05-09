@@ -378,7 +378,7 @@ fn interpret_syntax(
             match item {
                 CtxItem::Variable(var, ty) => {
                     if &expected == ty {
-                        Ok(IRExpression::LocalVar(*var))
+                        Ok(IRExpression::LocalVar(ty.clone(), *var))
                     } else {
                         Err(format!(
                             "Type Error for variable {i}: Expected `{expected:?}`; got `{ty:?}`"
@@ -423,7 +423,7 @@ fn interpret_syntax(
                     local_var_table,
                     stmt_ty.as_concrete(),
                 )?;
-                output.push(statement)
+                output.push(statement);
             }
             if let Some(ret) = ret {
                 let ret = interpret_syntax(ret, &mut block_context, local_var_table, ret_ty)?;
@@ -449,18 +449,23 @@ fn interpret_syntax(
         }
         (Expression::UnaryOperation(op, inner), ty) => {
             // TODO: get a type hint
-            let val = interpret_syntax(inner, function_context, local_var_table, ty)?;
-            Ok(IRExpression::UnaryOperation(*op, Box::new(val)))
+            let val = interpret_syntax(inner, function_context, local_var_table, ty.clone())?;
+            Ok(IRExpression::UnaryOperation(ty, *op, Box::new(val)))
         }
         (Expression::BinaryOperation(lhs, op, rhs), ty) => {
             let lhs_ty = type_hint(lhs, function_context, local_var_table)?;
             let rhs_ty = type_hint(rhs, function_context, local_var_table)?;
             let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
-            let lhs =
-                interpret_syntax(lhs, function_context, local_var_table, lhs_ty.as_concrete())?;
+            let lhs = interpret_syntax(
+                lhs,
+                function_context,
+                local_var_table,
+                lhs_ty.clone().as_concrete(),
+            )?;
             let rhs =
                 interpret_syntax(rhs, function_context, local_var_table, rhs_ty.as_concrete())?;
             Ok(IRExpression::BinaryOperation(
+                lhs_ty.as_concrete(),
                 Box::new(lhs),
                 *op,
                 Box::new(rhs),
@@ -513,7 +518,7 @@ fn interpret_syntax(
             function_context.insert(var.clone(), CtxItem::Variable(local_index, ty.clone()));
             local_var_table.push((ty.clone(), var.clone()));
             let val = interpret_syntax(value, function_context, local_var_table, ty.clone())?;
-            Ok(IRExpression::SetLocal(local_index, Box::new(val)))
+            Ok(IRExpression::SetLocal(ty.clone(), local_index, Box::new(val)))
         }
         (Expression::Loop { body, condition }, expected_ty) if expected_ty.is_void() => {
             let loop_body =
@@ -567,22 +572,20 @@ fn interpret_syntax(
                             IRFieldType::VOID,
                         )?;
 
-                        let end = interpret_syntax(
-                            end,
-                            &mut loop_context,
-                            local_var_table,
-                            ty.clone(),
-                        )?;
+                        let end =
+                            interpret_syntax(end, &mut loop_context, local_var_table, ty.clone())?;
 
                         return Ok(IRExpression::For {
-                            init: Box::new(IRExpression::SetLocal(var_idx, Box::new(start))),
+                            init: Box::new(IRExpression::SetLocal(ty.clone(), var_idx, Box::new(start))),
                             inc: Box::new(IRExpression::UnaryOperation(
+                                ty.clone(),
                                 UnaryOperator::Inc,
-                                Box::new(IRExpression::LocalVar(var_idx)),
+                                Box::new(IRExpression::LocalVar(ty.clone(), var_idx)),
                             )),
                             body: Box::new(body),
                             condition: Box::new(IRExpression::BinaryOperation(
-                                Box::new(IRExpression::LocalVar(var_idx)),
+                                ty.clone(),
+                                Box::new(IRExpression::LocalVar(ty.clone(), var_idx)),
                                 BinaryOperator::Lt,
                                 Box::new(end),
                             )),

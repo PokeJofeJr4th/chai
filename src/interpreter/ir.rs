@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     parser::syntax::{BinaryOperator, UnaryOperator},
-    types::IRFieldType,
+    types::{IRFieldType, InnerFieldType},
 };
 
 use super::context::FunctionInfo;
@@ -74,17 +74,21 @@ pub enum IRStatement {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum IRExpression {
-    Stack,
     Void,
-    LocalVar(usize),
+    LocalVar(IRFieldType, usize),
     String(Arc<str>),
     Int(i32),
     Long(i64),
     Float(f32),
     Double(f64),
     MakeTuple(Vec<IRExpression>),
-    BinaryOperation(Box<IRExpression>, BinaryOperator, Box<IRExpression>),
-    UnaryOperation(UnaryOperator, Box<IRExpression>),
+    BinaryOperation(
+        IRFieldType,
+        Box<IRExpression>,
+        BinaryOperator,
+        Box<IRExpression>,
+    ),
+    UnaryOperation(IRFieldType, UnaryOperator, Box<IRExpression>),
     Block(Vec<IRExpression>, Option<Box<IRExpression>>),
     If(Box<IRExpression>, Box<IRExpression>, Box<IRExpression>),
     For {
@@ -93,6 +97,38 @@ pub enum IRExpression {
         body: Box<IRExpression>,
         condition: Box<IRExpression>,
     },
-    SetLocal(usize, Box<IRExpression>),
+    SetLocal(IRFieldType, usize, Box<IRExpression>),
     Invoke(Arc<FunctionInfo>, Vec<IRExpression>),
+}
+
+impl IRExpression {
+    #[must_use]
+    pub fn negative(self) -> Self {
+        match self {
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Lt, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Ge, rhs)
+            }
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Le, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Gt, rhs)
+            }
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Gt, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Le, rhs)
+            }
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Ge, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Lt, rhs)
+            }
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Eq, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Ne, rhs)
+            }
+            Self::BinaryOperation(ty, lhs, BinaryOperator::Ne, rhs) => {
+                Self::BinaryOperation(ty, lhs, BinaryOperator::Eq, rhs)
+            }
+            Self::UnaryOperation(ty, UnaryOperator::Not, inner) => *inner,
+            other => Self::UnaryOperation(
+                InnerFieldType::Boolean.into(),
+                UnaryOperator::Not,
+                Box::new(other),
+            ),
+        }
+    }
 }

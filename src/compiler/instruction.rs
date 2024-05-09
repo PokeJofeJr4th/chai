@@ -1,5 +1,7 @@
 use std::io::{Error, Write};
 
+use crate::parser::syntax::BinaryOperator;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitiveType {
     Boolean,
@@ -59,8 +61,23 @@ pub enum ICmp {
     Le = 5,
 }
 
+impl TryFrom<BinaryOperator> for ICmp {
+    type Error = ();
+    fn try_from(value: BinaryOperator) -> Result<Self, Self::Error> {
+        match value {
+            BinaryOperator::Eq => Ok(Self::Eq),
+            BinaryOperator::Ne => Ok(Self::Ne),
+            BinaryOperator::Lt => Ok(Self::Lt),
+            BinaryOperator::Le => Ok(Self::Le),
+            BinaryOperator::Gt => Ok(Self::Gt),
+            BinaryOperator::Ge => Ok(Self::Ge),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Instruction {
+pub enum Instruction<Label = u32> {
     Nop,
     Pop,
     Pop2,
@@ -77,17 +94,20 @@ pub enum Instruction {
     Operate(PrimitiveType, Operator),
     PushByte(u16),
     Cast(u16),
+    /// false -> g, true -> l
     DoubleCmp(bool),
+    /// false -> g, true -> l
     FloatCmp(bool),
     Push(Const),
     Arraylength,
     GetField(u16),
     GetStatic(u16),
-    Goto(u32),
-    IfACmp(bool, u16),
-    IfIcmp(ICmp, u16),
+    Goto(Label),
+    Label(Label),
+    IfACmp(bool, Label),
+    IfIcmp(ICmp, Label),
     LCmp,
-    IfZcmp(ICmp, u16),
+    IfZcmp(ICmp, Label),
     IfNull,
     IfNonNull,
     Dup,
@@ -111,6 +131,7 @@ impl Instruction {
     #[allow(clippy::too_many_lines)]
     pub fn write(&self, writer: &mut impl Write) -> Result<(), Error> {
         match self {
+            Self::Label(_) => Ok(()),
             Self::Nop => writer.write_all(&[0]),
             Self::Push(Const::Null) => writer.write_all(&[0x1]),
             Self::Push(Const::IM1) => writer.write_all(&[0x2]),
