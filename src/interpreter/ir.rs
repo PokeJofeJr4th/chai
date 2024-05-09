@@ -55,27 +55,25 @@ impl Symbol {
 pub struct IRFunction {
     pub name: Arc<str>,
     pub params: Vec<IRFieldType>,
+    pub locals: Vec<IRFieldType>,
     pub ret: Option<IRFieldType>,
-    pub body: Vec<IRStatement>,
+    pub body: IRExpression,
 }
 
 #[derive(Debug)]
 pub enum IRStatement {
-    Push(IRLocation),
+    Push(IRExpression),
     Pop,
     Invoke(Arc<FunctionInfo>),
-    Branch(IRLocation, Symbol),
+    Branch(IRExpression, Symbol),
     Jump(Symbol),
     Label(Symbol),
-    Move(IRLocation, IRLocation),
-    BinaryOperation(IRLocation, BinaryOperator, IRLocation),
-    UnaryOperation(UnaryOperator, IRLocation),
-    MakeTuple(usize),
+    Move(IRExpression, IRExpression),
     Return,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum IRLocation {
+pub enum IRExpression {
     Stack,
     Void,
     LocalVar(usize),
@@ -84,4 +82,17 @@ pub enum IRLocation {
     Long(i64),
     Float(f32),
     Double(f64),
+    MakeTuple(Vec<IRExpression>),
+    BinaryOperation(Box<IRExpression>, BinaryOperator, Box<IRExpression>),
+    UnaryOperation(UnaryOperator, Box<IRExpression>),
+    Block(Vec<IRExpression>, Option<Box<IRExpression>>),
+    If(Box<IRExpression>, Box<IRExpression>, Box<IRExpression>),
+    For {
+        init: Box<IRExpression>,
+        inc: Box<IRExpression>,
+        body: Box<IRExpression>,
+        condition: Box<IRExpression>,
+    },
+    SetLocal(usize, Box<IRExpression>),
+    Invoke(Arc<FunctionInfo>, Vec<IRExpression>),
 }

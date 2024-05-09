@@ -3,13 +3,13 @@ use std::{collections::HashMap, sync::Arc};
 use jvmrs_lib::{access, FieldType};
 
 use crate::{
-    parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel},
+    parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator},
     types::{IRFieldType, InnerFieldType},
 };
 
 use self::{
     context::{ClassInfo, Context, CtxItem, FunctionInfo},
-    ir::{IRFunction, IRLocation, IRStatement, Symbol},
+    ir::{IRExpression, IRFunction, IRStatement, Symbol},
     types::{operate_types, TypeHint},
 };
 
@@ -226,7 +226,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
             local_var_table.push((ty, param.clone()));
         }
 
-        let (mut body, loc) = interpret_syntax(
+        let body = interpret_syntax(
             body,
             &mut function_context,
             &mut local_var_table,
@@ -238,17 +238,11 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
                     array_depth: 0,
                 }),
         )?;
-
-        // TODO: make sure type hint matches
-
-        if loc != IRLocation::Stack {
-            body.push(IRStatement::Move(loc, IRLocation::Stack));
-        }
-        body.push(IRStatement::Return);
         ir_functions.push(IRFunction {
             name: name.clone(),
             params: param_types,
             ret: return_type.clone(),
+            locals: local_var_table.into_iter().map(|(ty, _)| ty).collect(),
             body,
         });
     }
@@ -375,7 +369,7 @@ fn interpret_syntax(
     function_context: &mut Context,
     local_var_table: &mut Vec<(IRFieldType, Arc<str>)>,
     expected_ty: IRFieldType,
-) -> Result<(Vec<IRStatement>, IRLocation), String> {
+) -> Result<IRExpression, String> {
     match (syn, expected_ty) {
         (Expression::Ident(i), expected) => {
             let Some(item) = function_context.get(i) else {
@@ -384,7 +378,7 @@ fn interpret_syntax(
             match item {
                 CtxItem::Variable(var, ty) => {
                     if &expected == ty {
-                        Ok((Vec::new(), IRLocation::LocalVar(*var)))
+                        Ok(IRExpression::LocalVar(*var))
                     } else {
                         Err(format!(
                             "Type Error for variable {i}: Expected `{expected:?}`; got `{ty:?}`"
@@ -401,7 +395,7 @@ fn interpret_syntax(
                 array_depth: 0,
             },
         ) => match i32::try_from(*i) {
-            Ok(i) => Ok((Vec::new(), IRLocation::Int(i))),
+            Ok(i) => Ok(IRExpression::Int(i)),
             Err(err) => Err(err.to_string()),
         },
         (
@@ -410,37 +404,33 @@ fn interpret_syntax(
                 ty: InnerFieldType::Float,
                 array_depth: 0,
             },
-        ) => Ok((Vec::new(), IRLocation::Float(*f as f32))),
+        ) => Ok(IRExpression::Float(*f as f32)),
         (
             Expression::String(s),
             IRFieldType {
                 ty: InnerFieldType::Object { base, generics },
                 array_depth: 0,
             },
-        ) if &*base == "java/lang/String" => Ok((Vec::new(), IRLocation::String(s.clone()))),
+        ) if &*base == "java/lang/String" => Ok(IRExpression::String(s.clone())),
         (Expression::Block { statements, ret }, ret_ty) => {
             let mut output = Vec::new();
             let mut block_context = function_context.child();
             for statement in statements {
                 let stmt_ty = type_hint(statement, function_context, local_var_table)?;
-                let (syn, loc) = interpret_syntax(
+                let statement = interpret_syntax(
                     statement,
                     &mut block_context,
                     local_var_table,
                     stmt_ty.as_concrete(),
                 )?;
-                if loc == IRLocation::Stack {
-                    output.push(IRStatement::Pop);
-                }
-                output.extend(syn);
+                output.push(statement)
             }
             if let Some(ret) = ret {
-                let (syn, loc) =
-                    interpret_syntax(ret, &mut block_context, local_var_table, ret_ty)?;
-                output.extend(syn);
-                Ok((output, loc))
+                let ret = interpret_syntax(ret, &mut block_context, local_var_table, ret_ty)?;
+
+                Ok(IRExpression::Block(output, Some(Box::new(ret))))
             } else {
-                Ok((output, IRLocation::Void))
+                Ok(IRExpression::Block(output, None))
             }
         }
         (
@@ -452,43 +442,32 @@ fn interpret_syntax(
         ) => {
             let mut out = Vec::new();
             for (element, ty) in elements.iter().zip(tup_types) {
-                let (code, loc) = interpret_syntax(element, function_context, local_var_table, ty)?;
-                out.extend(code);
-                if loc != IRLocation::Stack {
-                    out.push(IRStatement::Move(loc, IRLocation::Stack));
-                }
+                let expr = interpret_syntax(element, function_context, local_var_table, ty)?;
+                out.push(expr);
             }
-            out.push(IRStatement::MakeTuple(elements.len()));
-            Ok((out, IRLocation::Stack))
+            Ok(IRExpression::MakeTuple(out))
         }
         (Expression::UnaryOperation(op, inner), ty) => {
             // TODO: get a type hint
-            let (mut output, loc) = interpret_syntax(inner, function_context, local_var_table, ty)?;
-            output.push(IRStatement::UnaryOperation(*op, loc));
-            // TODO: Do all unary operations maintain type?
-            Ok((output, IRLocation::Stack))
+            let val = interpret_syntax(inner, function_context, local_var_table, ty)?;
+            Ok(IRExpression::UnaryOperation(*op, Box::new(val)))
         }
         (Expression::BinaryOperation(lhs, op, rhs), ty) => {
             let lhs_ty = type_hint(lhs, function_context, local_var_table)?;
             let rhs_ty = type_hint(rhs, function_context, local_var_table)?;
             let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
-            let (mut output, lhs_loc) =
+            let lhs =
                 interpret_syntax(lhs, function_context, local_var_table, lhs_ty.as_concrete())?;
-            let (rhs_out, rhs_loc) =
+            let rhs =
                 interpret_syntax(rhs, function_context, local_var_table, rhs_ty.as_concrete())?;
-            output.extend(rhs_out);
-            output.push(IRStatement::BinaryOperation(lhs_loc, *op, rhs_loc));
-            Ok((
-                output,
-                if output_ty == TypeHint::Void {
-                    IRLocation::Void
-                } else {
-                    IRLocation::Stack
-                },
+            Ok(IRExpression::BinaryOperation(
+                Box::new(lhs),
+                *op,
+                Box::new(rhs),
             ))
         }
         (Expression::FunctionCall { function, args }, ty) => {
-            let mut arg_code = Vec::new();
+            let mut arg_expr = Vec::new();
             let arg_types = args
                 .iter()
                 .map(|arg| type_hint(arg, function_context, local_var_table))
@@ -497,17 +476,10 @@ fn interpret_syntax(
                 resolve_function(function, &arg_types, function_context, local_var_table)?;
 
             for (arg, ty) in args.iter().zip(&method_info.params) {
-                let (code, loc) =
-                    interpret_syntax(arg, function_context, local_var_table, ty.clone())?;
-                arg_code.extend(code);
-                if loc != IRLocation::Stack {
-                    arg_code.push(IRStatement::Move(loc, IRLocation::Stack));
-                }
+                let arg = interpret_syntax(arg, function_context, local_var_table, ty.clone())?;
+                arg_expr.push(arg);
             }
-            output.extend(arg_code);
-            let ret = method_info.ret.clone();
-            output.push(IRStatement::Invoke(method_info));
-            Ok((output, IRLocation::Stack))
+            Ok(IRExpression::Invoke(method_info, arg_expr))
         }
         (
             Expression::If {
@@ -517,86 +489,50 @@ fn interpret_syntax(
             },
             ty,
         ) => {
-            let symbol_then = Symbol::new("ternary.then".into());
-            let symbol_end = Symbol::new("ternary.endif".into());
-
-            let (false_body, false_loc) = match else_body {
+            let condition = interpret_syntax(
+                condition,
+                function_context,
+                local_var_table,
+                InnerFieldType::Boolean.into(),
+            )?;
+            let else_body = match else_body {
                 Some(else_body) => {
                     interpret_syntax(else_body, function_context, local_var_table, ty.clone())?
                 }
-                None => (Vec::new(), IRLocation::Void),
+                None => IRExpression::Void,
             };
-            let (true_body, true_loc) =
-                interpret_syntax(body, function_context, local_var_table, ty)?;
-            let output_loc = if true_loc == false_loc {
-                true_loc.clone()
-            } else {
-                IRLocation::Stack
-            };
-
-            // if condition jmp then
-            let mut output = Vec::new();
-            // let mut output = ir_branch(condition, &symbol_then, function_context, local_var_table)?;
-            // else:
-            output.extend(false_body);
-            if output_loc != false_loc {
-                output.push(IRStatement::Move(false_loc, output_loc.clone()));
-            }
-            // jmp endif
-            output.push(IRStatement::Jump(symbol_end.clone()));
-            // then:
-            output.push(IRStatement::Label(symbol_then));
-            output.extend(true_body);
-            if output_loc != true_loc {
-                output.push(IRStatement::Move(true_loc, output_loc.clone()));
-            }
-            // endif:
-            output.push(IRStatement::Label(symbol_end));
-            Ok((output, output_loc))
+            let then_body = interpret_syntax(body, function_context, local_var_table, ty)?;
+            Ok(IRExpression::If(
+                Box::new(condition),
+                Box::new(then_body),
+                Box::new(else_body),
+            ))
         }
         (Expression::Let { ty, var, value }, expected_ty) if expected_ty.is_void() => {
             let local_index = local_var_table.len();
             function_context.insert(var.clone(), CtxItem::Variable(local_index, ty.clone()));
             local_var_table.push((ty.clone(), var.clone()));
-            let local_symbol = Symbol::new(var.clone());
-            let (mut output, loc) =
-                interpret_syntax(value, function_context, local_var_table, ty.clone())?;
-            output.push(IRStatement::Move(loc, IRLocation::LocalVar(local_index)));
-            // TODO: make sure the expression type is valid
-            Ok((output, IRLocation::Void))
+            let val = interpret_syntax(value, function_context, local_var_table, ty.clone())?;
+            Ok(IRExpression::SetLocal(local_index, Box::new(val)))
         }
         (Expression::Loop { body, condition }, expected_ty) if expected_ty.is_void() => {
-            let condition_symbol = Symbol::new("loop.condition".into());
-            let body_symbol = Symbol::new("loop.body".into());
-            let mut output = Vec::new();
-
-            // goto condition
-            if condition.is_some() {
-                output.push(IRStatement::Jump(condition_symbol.clone()));
-            }
-            // body:
-            output.push(IRStatement::Label(body_symbol.clone()));
-            let (body, body_loc) =
+            let loop_body =
                 interpret_syntax(body, function_context, local_var_table, IRFieldType::VOID)?;
-            if body_loc != IRLocation::Void {
-                return Err(format!("Loop body should return void; got `{body_loc:?}`"));
-            }
-            output.extend(body);
-            // condition:
-            output.push(IRStatement::Label(condition_symbol));
-            // if condition goto body
-            match condition {
-                Some(condition) => {
-                    let branch = Vec::new();
-                    // let branch =
-                    //     ir_branch(condition, &body_symbol, function_context, local_var_table)?;
-                    output.extend(branch);
-                }
-                None => {
-                    output.push(IRStatement::Jump(body_symbol));
-                }
-            }
-            Ok((output, IRLocation::Void))
+            let condition = match condition {
+                Some(condition) => interpret_syntax(
+                    condition,
+                    function_context,
+                    local_var_table,
+                    InnerFieldType::Boolean.into(),
+                )?,
+                None => IRExpression::Void,
+            };
+            Ok(IRExpression::For {
+                init: Box::new(IRExpression::Void),
+                inc: Box::new(IRExpression::Void),
+                body: Box::new(loop_body),
+                condition: Box::new(condition),
+            })
         }
         (
             Expression::For {
@@ -615,42 +551,42 @@ fn interpret_syntax(
                         let mut loop_context = function_context.child();
                         let var_idx = local_var_table.len();
                         local_var_table.push((ty.clone(), var.clone()));
-
-                        let body_symbol = Symbol::new("for.body".into());
                         loop_context.insert(var.clone(), CtxItem::Variable(var_idx, ty.clone()));
-                        let loop_var_ty = type_hint(start, &mut loop_context, local_var_table)?
-                            .intersect(&type_hint(end, &mut loop_context, local_var_table)?)?
-                            .as_concrete();
-                        // initialize
-                        let (mut output, loop_var_loc) = interpret_syntax(
+
+                        let start = interpret_syntax(
                             start,
                             &mut loop_context,
                             local_var_table,
-                            loop_var_ty,
+                            ty.clone(),
                         )?;
-                        if loop_var_loc != IRLocation::Stack {
-                            output.push(IRStatement::Move(loop_var_loc, IRLocation::Stack));
-                        }
-                        // jump body
-                        output.push(IRStatement::Jump(body_symbol));
-                        // increment
-                        // TODO
-                        // body
-                        let (body, body_loc) = interpret_syntax(
+
+                        let body = interpret_syntax(
                             body,
                             &mut loop_context,
                             local_var_table,
                             IRFieldType::VOID,
                         )?;
-                        output.extend(body);
-                        if body_loc != IRLocation::Void {
-                            return Err(format!(
-                                "Expected for loop to return void; got `{body_loc:?}`"
-                            ));
-                        }
-                        // if condition jump body
-                        // TODO
-                        return Ok((output, IRLocation::Void));
+
+                        let end = interpret_syntax(
+                            end,
+                            &mut loop_context,
+                            local_var_table,
+                            ty.clone(),
+                        )?;
+
+                        return Ok(IRExpression::For {
+                            init: Box::new(IRExpression::SetLocal(var_idx, Box::new(start))),
+                            inc: Box::new(IRExpression::UnaryOperation(
+                                UnaryOperator::Inc,
+                                Box::new(IRExpression::LocalVar(var_idx)),
+                            )),
+                            body: Box::new(body),
+                            condition: Box::new(IRExpression::BinaryOperation(
+                                Box::new(IRExpression::LocalVar(var_idx)),
+                                BinaryOperator::Lt,
+                                Box::new(end),
+                            )),
+                        });
                     }
                 }
             }
@@ -697,10 +633,7 @@ fn resolve_function(
                 }
             }
             let obj_ty = type_hint(obj, context, local_var_table)?.as_concrete();
-            let (mut output, loc) = interpret_syntax(obj, context, local_var_table, obj_ty)?;
-            if loc != IRLocation::Stack {
-                output.push(IRStatement::Move(loc, IRLocation::Stack));
-            }
+            let instance = interpret_syntax(obj, context, local_var_table, obj_ty)?;
             // TODO: use the object type to help resolve the function
             todo!("Resolve the instance function");
             // Ok((output, id.clone()))

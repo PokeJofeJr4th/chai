@@ -78,7 +78,7 @@ pub enum Expression {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOperator {
     Not,
     Minus,
@@ -87,7 +87,7 @@ pub enum UnaryOperator {
     Try,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
     Dot,
     Add,
