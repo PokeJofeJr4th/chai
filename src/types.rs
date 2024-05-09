@@ -64,6 +64,18 @@ impl IRFieldType {
         array_depth: 0,
     };
 
+    #[must_use]
+    pub fn object() -> Self {
+        Self {
+            ty: InnerFieldType::Object {
+                base: "java/lang/Object".into(),
+                generics: Vec::new(),
+            },
+            array_depth: 0,
+        }
+    }
+
+    #[must_use]
     pub fn string() -> Self {
         Self {
             ty: InnerFieldType::Object {

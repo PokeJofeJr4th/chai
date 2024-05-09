@@ -30,13 +30,22 @@ pub fn resolve_imports(
             (["chai"], "print") => {
                 context.insert(
                     "print".into(),
-                    CtxItem::Function(vec![Arc::new(FunctionInfo {
-                        class: "<chai>".into(),
-                        access: access!(public static),
-                        name: "print".into(),
-                        params: vec![IRFieldType::string()],
-                        ret: IRFieldType::VOID,
-                    })]),
+                    CtxItem::Function(vec![
+                        Arc::new(FunctionInfo {
+                            class: "<chai>".into(),
+                            access: access!(public static),
+                            name: "print".into(),
+                            params: vec![IRFieldType::string()],
+                            ret: IRFieldType::VOID,
+                        }),
+                        Arc::new(FunctionInfo {
+                            class: "<chai>".into(),
+                            access: access!(public static),
+                            name: "print".into(),
+                            params: vec![InnerFieldType::Int.into()],
+                            ret: IRFieldType::VOID,
+                        }),
+                    ]),
                 );
             }
             (["chai"], "range") => {
@@ -282,7 +291,48 @@ fn type_hint(
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         Expression::UnaryOperation(_, _) => todo!(),
-        Expression::BinaryOperation(_, _, _) => todo!(),
+        Expression::BinaryOperation(lhs, BinaryOperator::Index, rhs) => {
+            let lhs = type_hint(lhs, function_context, local_var_table)?;
+            match lhs {
+                TypeHint::Concrete(IRFieldType {
+                    ty,
+                    array_depth: depth @ 1..,
+                }) => Ok(TypeHint::Concrete(IRFieldType {
+                    ty,
+                    array_depth: depth - 1,
+                })),
+                TypeHint::Tuple(mut types) => {
+                    let Expression::Int(idx) = &**rhs else {
+                        return Err(format!(
+                            "Expected constant index into tuple type; got `{rhs:?}`"
+                        ));
+                    };
+                    let idx = *idx as usize;
+                    if idx >= types.len() {
+                        return Err(format!(
+                            "Index `{idx}` is past the length of tuple type `{types:?}`"
+                        ));
+                    }
+                    Ok(types.swap_remove(idx))
+                }
+                other => Err(format!("Can't index into a value of type `{other:?}`")),
+            }
+        }
+        Expression::BinaryOperation(
+            lhs,
+            BinaryOperator::Add
+            | BinaryOperator::Sub
+            | BinaryOperator::Mul
+            | BinaryOperator::Div
+            | BinaryOperator::Mod,
+            rhs,
+        ) => {
+            let lhs = type_hint(lhs, function_context, local_var_table)?;
+            let rhs = type_hint(rhs, function_context, local_var_table)?;
+
+            lhs.intersect(&rhs)
+        }
+        Expression::BinaryOperation(lhs, op, rhs) => todo!(),
         Expression::FunctionCall { function, args } => todo!(),
         Expression::If {
             condition: _,

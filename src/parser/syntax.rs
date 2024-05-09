@@ -1,4 +1,7 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use crate::types::IRFieldType;
 
@@ -113,4 +116,42 @@ pub enum BinaryOperator {
     Ne,
     Set,
     Index,
+}
+
+impl Display for BinaryOperator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                BinaryOperator::Dot => ".",
+                BinaryOperator::Add => "+",
+                BinaryOperator::AddEq => "+=",
+                BinaryOperator::Sub => "-",
+                BinaryOperator::SubEq => "-=",
+                BinaryOperator::Mul => "*",
+                BinaryOperator::MulEq => "*=",
+                BinaryOperator::Div => "/",
+                BinaryOperator::DivEq => "/=",
+                BinaryOperator::Mod => "%",
+                BinaryOperator::ModEq => "%=",
+                BinaryOperator::And => "&&",
+                BinaryOperator::BitAnd => "&",
+                BinaryOperator::BitAndEq => "&=",
+                BinaryOperator::Or => "||",
+                BinaryOperator::BitOr => "|",
+                BinaryOperator::BitOrEq => "|=",
+                BinaryOperator::Xor => "^",
+                BinaryOperator::XorEq => "^=",
+                BinaryOperator::Lt => "<",
+                BinaryOperator::Le => "<=",
+                BinaryOperator::Gt => ">",
+                BinaryOperator::Ge => ">=",
+                BinaryOperator::Eq => "==",
+                BinaryOperator::Ne => "!=",
+                BinaryOperator::Set => "=",
+                BinaryOperator::Index => "[",
+            }
+        )
+    }
 }
