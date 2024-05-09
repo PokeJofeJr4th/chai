@@ -318,6 +318,11 @@ fn type_hint(
                 other => Err(format!("Can't index into a value of type `{other:?}`")),
             }
         }
+        Expression::BinaryOperation(lhs, BinaryOperator::Add, rhs)
+            if type_hint(lhs, function_context, local_var_table).is_ok_and(|ty| ty.is_string()) =>
+        {
+            Ok(TypeHint::Concrete(IRFieldType::string()))
+        }
         Expression::BinaryOperation(
             lhs,
             BinaryOperator::Add
@@ -333,7 +338,18 @@ fn type_hint(
             lhs.intersect(&rhs)
         }
         Expression::BinaryOperation(lhs, op, rhs) => todo!(),
-        Expression::FunctionCall { function, args } => todo!(),
+        Expression::FunctionCall { function, args } => {
+            let (_, func) = resolve_function(
+                function,
+                &args
+                    .iter()
+                    .map(|arg| type_hint(arg, function_context, local_var_table))
+                    .collect::<Result<Vec<_>, _>>()?,
+                function_context,
+                local_var_table,
+            )?;
+            Ok(TypeHint::Concrete(func.ret.clone()))
+        }
         Expression::If {
             condition: _,
             body,
@@ -367,12 +383,12 @@ fn interpret_syntax(
             };
             match item {
                 CtxItem::Variable(var, ty) => {
-                    if &expected != ty {
+                    if &expected == ty {
+                        Ok((Vec::new(), IRLocation::LocalVar(*var)))
+                    } else {
                         Err(format!(
                             "Type Error for variable {i}: Expected `{expected:?}`; got `{ty:?}`"
                         ))
-                    } else {
-                        Ok((Vec::new(), IRLocation::LocalVar(*var)))
                     }
                 }
                 _ => Err(format!("Unresolved identifier `{i}`")),
@@ -406,14 +422,12 @@ fn interpret_syntax(
             let mut output = Vec::new();
             let mut block_context = function_context.child();
             for statement in statements {
+                let stmt_ty = type_hint(statement, function_context, local_var_table)?;
                 let (syn, loc) = interpret_syntax(
                     statement,
                     &mut block_context,
                     local_var_table,
-                    IRFieldType {
-                        ty: InnerFieldType::Tuple(Vec::new()),
-                        array_depth: 0,
-                    },
+                    stmt_ty.as_concrete(),
                 )?;
                 if loc == IRLocation::Stack {
                     output.push(IRStatement::Pop);
