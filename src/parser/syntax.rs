@@ -82,8 +82,6 @@ pub enum Expression {
 pub enum UnaryOperator {
     Not,
     Minus,
-    Inc,
-    Dec,
     Try,
 }
 

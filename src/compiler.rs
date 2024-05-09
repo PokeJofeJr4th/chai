@@ -170,9 +170,52 @@ fn compile_expression(
             ));
             Ok(code)
         }
+        IRExpression::BinaryOperation(
+            IRFieldType {
+                ty:
+                    ty @ (InnerFieldType::Byte
+                    | InnerFieldType::Double
+                    | InnerFieldType::Float
+                    | InnerFieldType::Int
+                    | InnerFieldType::Long
+                    | InnerFieldType::Short),
+                array_depth: 0,
+            },
+            lhs,
+            op @ (BinaryOperator::AddEq
+            | BinaryOperator::SubEq
+            | BinaryOperator::MulEq
+            | BinaryOperator::DivEq
+            | BinaryOperator::ModEq),
+            rhs,
+        ) => {
+            let mut code = compile_expression(*rhs, class)?;
+            code.push(Instruction::Operate(
+                IRFieldType::from(ty).to_primitive(),
+                match op {
+                    BinaryOperator::AddEq => Operator::Add,
+                    BinaryOperator::SubEq => Operator::Sub,
+                    BinaryOperator::MulEq => Operator::Mul,
+                    BinaryOperator::DivEq => Operator::Div,
+                    BinaryOperator::ModEq => Operator::Rem,
+                    _ => unreachable!(),
+                },
+            ));
+            compile_modify(*lhs, code, class)
+        }
         IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{ty:?} {lhs:?} {op:?} {rhs:?}"),
         IRExpression::UnaryOperation(ty, op, inner) => todo!("{op:?} {inner:?}"),
-        IRExpression::Block(_, _) => todo!(),
+        IRExpression::Block(stmts, ret) => {
+            let mut code = Vec::new();
+            for stmt in stmts {
+                code.extend(compile_expression(stmt, class)?);
+                // TODO: Pop?
+            }
+            if let Some(ret) = ret {
+                code.extend(compile_expression(*ret, class)?);
+            }
+            Ok(code)
+        }
         IRExpression::If(cond, then_body, else_body) => {
             let end_label = Symbol::new("if.end".into());
             let else_label = Symbol::new("if.else".into());
@@ -286,10 +329,58 @@ fn compile_branch(
             ));
             Ok(code)
         }
+        IRExpression::BinaryOperation(
+            IRFieldType {
+                ty: InnerFieldType::Int | InnerFieldType::Byte | InnerFieldType::Short,
+                array_depth: 0,
+            },
+            lhs,
+            op @ (BinaryOperator::Lt
+            | BinaryOperator::Le
+            | BinaryOperator::Gt
+            | BinaryOperator::Ge
+            | BinaryOperator::Eq
+            | BinaryOperator::Ne),
+            rhs,
+        ) => {
+            // put the first int on the stack
+            let mut code = compile_expression(*lhs, class)?;
+            // either put the second one on the stack or use a zero comparison
+            if *rhs == IRExpression::Int(0) {
+                code.push(Instruction::IfZcmp(
+                    ICmp::try_from(op).unwrap(),
+                    branch_label,
+                ));
+            } else {
+                code.extend(compile_expression(*rhs, class)?);
+                code.push(Instruction::IfIcmp(
+                    ICmp::try_from(op).unwrap(),
+                    branch_label,
+                ));
+            }
+            Ok(code)
+        }
         condition => {
             let mut code = compile_expression(condition, class)?;
             code.push(Instruction::IfZcmp(ICmp::Ne, branch_label));
             Ok(code)
         }
+    }
+}
+
+/// returns Ok((get, set))
+fn compile_modify(
+    expression: IRExpression,
+    modification: Vec<Instruction>,
+    class: &mut Class,
+) -> Result<Vec<Instruction>, String> {
+    match expression {
+        IRExpression::LocalVar(ty, idx) => {
+            let mut code = vec![Instruction::Load(ty.to_primitive(), idx as u8)];
+            code.extend(modification);
+            code.push(Instruction::Store(ty.to_primitive(), idx as u8));
+            Ok(code)
+        }
+        other => Err(format!("{other:?} isn't a data location")),
     }
 }

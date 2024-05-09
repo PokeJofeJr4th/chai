@@ -518,7 +518,11 @@ fn interpret_syntax(
             function_context.insert(var.clone(), CtxItem::Variable(local_index, ty.clone()));
             local_var_table.push((ty.clone(), var.clone()));
             let val = interpret_syntax(value, function_context, local_var_table, ty.clone())?;
-            Ok(IRExpression::SetLocal(ty.clone(), local_index, Box::new(val)))
+            Ok(IRExpression::SetLocal(
+                ty.clone(),
+                local_index,
+                Box::new(val),
+            ))
         }
         (Expression::Loop { body, condition }, expected_ty) if expected_ty.is_void() => {
             let loop_body =
@@ -576,11 +580,16 @@ fn interpret_syntax(
                             interpret_syntax(end, &mut loop_context, local_var_table, ty.clone())?;
 
                         return Ok(IRExpression::For {
-                            init: Box::new(IRExpression::SetLocal(ty.clone(), var_idx, Box::new(start))),
-                            inc: Box::new(IRExpression::UnaryOperation(
+                            init: Box::new(IRExpression::SetLocal(
                                 ty.clone(),
-                                UnaryOperator::Inc,
+                                var_idx,
+                                Box::new(start),
+                            )),
+                            inc: Box::new(IRExpression::BinaryOperation(
+                                ty.clone(),
                                 Box::new(IRExpression::LocalVar(ty.clone(), var_idx)),
+                                BinaryOperator::Add,
+                                Box::new(IRExpression::Int(1)),
                             )),
                             body: Box::new(body),
                             condition: Box::new(IRExpression::BinaryOperation(

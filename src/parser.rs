@@ -264,11 +264,19 @@ fn parse_expr_greedy(
         loop {
             match src.peek() {
                 Some(Token::PlusPlus) => {
-                    start = Expression::UnaryOperation(UnaryOperator::Inc, Box::new(start));
+                    start = Expression::BinaryOperation(
+                        Box::new(start),
+                        BinaryOperator::AddEq,
+                        Box::new(Expression::Int(1)),
+                    );
                     src.next();
                 }
                 Some(Token::TackTack) => {
-                    start = Expression::UnaryOperation(UnaryOperator::Dec, Box::new(start));
+                    start = Expression::BinaryOperation(
+                        Box::new(start),
+                        BinaryOperator::SubEq,
+                        Box::new(Expression::Int(1)),
+                    );
                     src.next();
                 }
                 _ => break,
