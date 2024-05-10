@@ -59,10 +59,12 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     // code_length
     // code bytes
     let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
+    let mut required_symbols: Vec<usize> = Vec::new();
     let mut offset: usize = 0;
     for instr in &body {
         if let Instruction::Label(label) = instr {
             symbol_table.insert(label.clone(), offset);
+            required_symbols.push(offset);
         }
         offset += instr.size();
     }
@@ -81,7 +83,33 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     // exception table
     code.extend([0, 0]);
     // attributes
-    code.extend([0, 0]);
+    code.extend(1u16.to_be_bytes());
+    // stack map attribute
+    let mut last_pc: usize = 0;
+    let mut stack_map = Vec::new();
+    required_symbols.dedup();
+    required_symbols.retain(|x| *x != 0);
+    for (idx, &pc) in required_symbols.iter().enumerate() {
+        let offset = if idx == 0 {
+            pc - last_pc
+        } else {
+            pc - last_pc - 1
+        };
+        last_pc = pc;
+        if offset <= 63 {
+            stack_map.push(offset as u8);
+        } else {
+            stack_map.push(251);
+            stack_map.extend((offset as u16).to_be_bytes());
+        }
+    }
+    // write in the stack map
+    code.extend(
+        (class.register_constant(Constant::String("StackMapTable".into())) as u16).to_be_bytes(),
+    );
+    code.extend((stack_map.len() as u32 + 2).to_be_bytes());
+    code.extend((required_symbols.len() as u16).to_be_bytes());
+    code.extend(stack_map);
 
     Ok(MethodInfo {
         name: func.name,
