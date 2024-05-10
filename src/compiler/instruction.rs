@@ -400,7 +400,7 @@ impl<T> Instruction<T> {
                     2
                 }
             }
-            Self::PushByte(i) => {
+            Self::PushByte(i) | Self::LoadConst(i) => {
                 if u8::try_from(*i).is_ok() {
                     2
                 } else {
@@ -426,7 +426,6 @@ impl<T> Instruction<T> {
             | Self::InvokeStatic(_)
             | Self::PutField(_)
             | Self::PutStatic(_)
-            | Self::LoadConst(_)
             | Self::LoadConst2(_)
             | Self::New(_) => 3,
             Self::InvokeDynamic(_) | Self::InvokeInterface(_, _) => 5,
