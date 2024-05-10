@@ -77,7 +77,7 @@ impl TryFrom<BinaryOperator> for ICmp {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Instruction<Label = u32> {
+pub enum Instruction<Label = i16> {
     Nop,
     Pop,
     Pop2,
@@ -128,6 +128,7 @@ pub enum Instruction<Label = u32> {
 }
 
 impl Instruction {
+    /// # Errors
     #[allow(clippy::too_many_lines)]
     pub fn write(&self, writer: &mut impl Write) -> Result<(), Error> {
         match self {
@@ -280,13 +281,8 @@ impl Instruction {
                 writer.write_all(&b.to_be_bytes())
             }
             Self::Goto(i) => {
-                if let Ok(i) = u16::try_from(*i) {
-                    writer.write_all(&[0xA7])?;
-                    writer.write_all(&i.to_be_bytes())
-                } else {
-                    writer.write_all(&[0xC8])?;
-                    writer.write_all(&i.to_be_bytes())
-                }
+                writer.write_all(&[0xA7])?;
+                writer.write_all(&i.to_be_bytes())
             }
             Self::Return(PrimitiveType::Int) => writer.write_all(&[0xAC]),
             Self::Return(PrimitiveType::Long) => writer.write_all(&[0xAD]),
@@ -372,6 +368,118 @@ impl Instruction {
             Self::IfNull => writer.write_all(&[0xC6]),
             Self::IfNonNull => writer.write_all(&[0xC7]),
             _ => todo!(),
+        }
+    }
+}
+
+impl<T> Instruction<T> {
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Nop
+            | Self::Pop
+            | Self::Pop2
+            | Self::ArrayLoad(_)
+            | Self::ArrayStore(_)
+            | Self::Push(_)
+            | Self::Convert(_, _)
+            | Self::Return(_)
+            | Self::ReturnVoid
+            | Self::Operate(_, _)
+            | Self::DoubleCmp(_)
+            | Self::FloatCmp(_)
+            | Self::Arraylength
+            | Self::Dup
+            | Self::LCmp
+            | Self::Dup2
+            | Self::Throw => 1,
+            Self::MultiANewArray(_, _) => 4,
+            Self::Load(_, i) | Self::Store(_, i) => {
+                if *i <= 3 {
+                    1
+                } else {
+                    2
+                }
+            }
+            Self::PushByte(i) => {
+                if u8::try_from(*i).is_ok() {
+                    2
+                } else {
+                    3
+                }
+            }
+            Self::Label(_) => 0,
+            Self::NewArray(_)
+            | Self::ReferenceArray(_)
+            | Self::Cast(_)
+            | Self::IfNull
+            | Self::IfNonNull
+            | Self::GetField(_)
+            | Self::GetStatic(_)
+            | Self::Goto(_)
+            | Self::IfACmp(_, _)
+            | Self::IfIcmp(_, _)
+            | Self::IfZcmp(_, _)
+            | Self::IInc(_, _)
+            | Self::Instanceof(_)
+            | Self::InvokeSpecial(_)
+            | Self::InvokeVirtual(_)
+            | Self::InvokeStatic(_)
+            | Self::PutField(_)
+            | Self::PutStatic(_)
+            | Self::LoadConst(_)
+            | Self::LoadConst2(_)
+            | Self::New(_) => 3,
+            Self::InvokeDynamic(_) | Self::InvokeInterface(_, _) => 5,
+        }
+    }
+
+    pub fn map<U>(self, mut func: impl FnMut(T) -> U) -> Instruction<U> {
+        match self {
+            Self::Nop => Instruction::Nop,
+            Self::Pop => Instruction::Pop,
+            Self::Pop2 => Instruction::Pop2,
+            Self::NewArray(a) => Instruction::NewArray(a),
+            Self::MultiANewArray(a, b) => Instruction::MultiANewArray(a, b),
+            Self::Convert(a, b) => Instruction::Convert(a, b),
+            Self::ReferenceArray(a) => Instruction::ReferenceArray(a),
+            Self::ArrayLoad(a) => Instruction::ArrayLoad(a),
+            Self::ArrayStore(a) => Instruction::ArrayStore(a),
+            Self::Load(a, b) => Instruction::Load(a, b),
+            Self::Store(a, b) => Instruction::Store(a, b),
+            Self::Return(a) => Instruction::Return(a),
+            Self::ReturnVoid => Instruction::ReturnVoid,
+            Self::Operate(a, b) => Instruction::Operate(a, b),
+            Self::PushByte(a) => Instruction::PushByte(a),
+            Self::Cast(a) => Instruction::Cast(a),
+            Self::DoubleCmp(a) => Instruction::DoubleCmp(a),
+            Self::FloatCmp(a) => Instruction::FloatCmp(a),
+            Self::Push(a) => Instruction::Push(a),
+            Self::Arraylength => Instruction::Arraylength,
+            Self::GetField(a) => Instruction::GetField(a),
+            Self::GetStatic(a) => Instruction::GetStatic(a),
+            Self::Goto(a) => Instruction::Goto(func(a)),
+            Self::Label(a) => Instruction::Label(func(a)),
+            Self::IfACmp(a, b) => Instruction::IfACmp(a, func(b)),
+            Self::IfIcmp(a, b) => Instruction::IfIcmp(a, func(b)),
+            Self::LCmp => Instruction::LCmp,
+            Self::IfZcmp(a, b) => Instruction::IfZcmp(a, func(b)),
+            Self::IfNull => Instruction::IfNull,
+            Self::IfNonNull => Instruction::IfNonNull,
+            Self::Dup => Instruction::Dup,
+            Self::IInc(a, b) => Instruction::IInc(a, b),
+            Self::Instanceof(a) => Instruction::Instanceof(a),
+            Self::InvokeDynamic(a) => Instruction::InvokeDynamic(a),
+            Self::InvokeInterface(a, b) => Instruction::InvokeInterface(a, b),
+            Self::InvokeSpecial(a) => Instruction::InvokeSpecial(a),
+            Self::InvokeVirtual(a) => Instruction::InvokeVirtual(a),
+            Self::InvokeStatic(a) => Instruction::InvokeStatic(a),
+            Self::PutField(a) => Instruction::PutField(a),
+            Self::PutStatic(a) => Instruction::PutStatic(a),
+            Self::LoadConst(a) => Instruction::LoadConst(a),
+            Self::LoadConst2(a) => Instruction::LoadConst2(a),
+            Self::New(a) => Instruction::New(a),
+            Self::Dup2 => Instruction::Dup2,
+            Self::Throw => Instruction::Throw,
         }
     }
 }

@@ -218,6 +218,7 @@ impl Class {
             .map(|x| x + 1)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn write_constant(
         &self,
         writer: &mut impl Write,
@@ -266,16 +267,56 @@ impl Class {
                 class,
                 name,
                 method_type,
-            } => todo!(),
+            } => {
+                let class_idx = u16::try_from(
+                    self.get_constant(&Constant::ClassRef(class.clone()))
+                        .unwrap(),
+                )?;
+                let name_ty_idx = u16::try_from(
+                    self.get_constant(&Constant::NameTypeDescriptor {
+                        name: name.clone(),
+                        type_descriptor: method_type.repr(),
+                    })
+                    .unwrap(),
+                )?;
+                writer.write_all(&[10])?;
+                writer.write_all(&class_idx.to_be_bytes())?;
+                writer.write_all(&name_ty_idx.to_be_bytes())?;
+            }
             Constant::InterfaceRef {
                 class,
                 name,
                 interface_type,
-            } => todo!(),
+            } => {
+                let class_idx = u16::try_from(
+                    self.get_constant(&Constant::ClassRef(class.clone()))
+                        .unwrap(),
+                )?;
+                let name_ty_idx = u16::try_from(
+                    self.get_constant(&Constant::NameTypeDescriptor {
+                        name: name.clone(),
+                        type_descriptor: interface_type.repr(),
+                    })
+                    .unwrap(),
+                )?;
+                writer.write_all(&[11])?;
+                writer.write_all(&class_idx.to_be_bytes())?;
+                writer.write_all(&name_ty_idx.to_be_bytes())?;
+            }
             Constant::NameTypeDescriptor {
                 name,
                 type_descriptor,
-            } => todo!(),
+            } => {
+                let name_idx =
+                    u16::try_from(self.get_constant(&Constant::String(name.clone())).unwrap())?;
+                let descriptor_idx = u16::try_from(
+                    self.get_constant(&Constant::String(type_descriptor.clone()))
+                        .unwrap(),
+                )?;
+                writer.write_all(&[12])?;
+                writer.write_all(&name_idx.to_be_bytes())?;
+                writer.write_all(&descriptor_idx.to_be_bytes())?;
+            }
             Constant::MethodHandle(_) => todo!(),
             Constant::MethodType(_) => todo!(),
             Constant::InvokeDynamic {

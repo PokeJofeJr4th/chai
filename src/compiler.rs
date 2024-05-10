@@ -35,14 +35,17 @@ pub fn compile(syn: Vec<IRFunction>) -> Result<Class, String> {
 
 fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, String> {
     let mut body: Vec<Instruction> = Vec::new();
-    let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
-
     body.extend(compile_expression(func.body, class)?);
+    match &func.ret {
+        Some(ret) => body.push(Instruction::Return(ret.to_primitive())),
+        None => body.push(Instruction::ReturnVoid),
+    }
+    println!("{body:?}");
 
     let mut code = Vec::new();
 
     // max stack
-    code.extend(0u16.to_be_bytes());
+    code.extend(u16::MAX.to_be_bytes());
     // max locals
     code.extend(
         (func
@@ -55,11 +58,23 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
 
     // code_length
     // code bytes
-    let mut code_bytes = Vec::new();
-    for instr in body {
-        // instr.write(&mut code_bytes).unwrap();
-        code_bytes.push(0);
+    let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
+    let mut offset: usize = 0;
+    for instr in &body {
+        if let Instruction::Label(label) = instr {
+            symbol_table.insert(label.clone(), offset);
+        }
+        offset += instr.size();
     }
+    println!("{offset}");
+    let mut code_bytes = Vec::new();
+    let mut offset = 0;
+    for instr in body {
+        let instr = instr.map(|sym| *symbol_table.get(&sym).unwrap() as i16 - offset - 1);
+        offset += instr.size() as i16;
+        instr.write(&mut code_bytes).map_err(|e| e.to_string())?;
+    }
+    println!("{offset}");
     code.extend((code_bytes.len() as u32).to_be_bytes());
     code.extend(code_bytes);
     // exception table
@@ -202,6 +217,19 @@ fn compile_expression(
                 },
             ));
             compile_modify(*lhs, code, class)
+        }
+        IRExpression::BinaryOperation(
+            ty @ IRFieldType {
+                array_depth: 1.., ..
+            },
+            lhs,
+            BinaryOperator::Index,
+            rhs,
+        ) => {
+            let mut code = compile_expression(*lhs, class)?;
+            code.extend(compile_expression(*rhs, class)?);
+            code.push(Instruction::ArrayLoad(ty.to_primitive()));
+            Ok(code)
         }
         IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{ty:?} {lhs:?} {op:?} {rhs:?}"),
         IRExpression::UnaryOperation(ty, op, inner) => todo!("{op:?} {inner:?}"),

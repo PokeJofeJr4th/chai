@@ -24,8 +24,5 @@ fn fizzbuzz(int num) {
 }
 
 fn main(String[] args) {
-    let int res = Integer.parseInt(args[0]);
-    print(res);
-    "fizzbuzz(res);
-    print(div(res, 10))";
+    fizzbuzz(Integer.parseInt(args[0]));
 }
