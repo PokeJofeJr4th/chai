@@ -1,6 +1,13 @@
-use std::io::{Error, Write};
+use std::{
+    io::{Error, Write},
+    sync::Arc,
+};
+
+use jvmrs_lib::{Constant, FieldType, MethodDescriptor};
 
 use crate::parser::syntax::BinaryOperator;
+
+use super::class::Class;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrimitiveType {
@@ -76,15 +83,15 @@ impl TryFrom<BinaryOperator> for ICmp {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Instruction<Label = i16> {
     Nop,
     Pop,
     Pop2,
     NewArray(PrimitiveType),
-    MultiANewArray(u16, u8),
+    MultiANewArray(FieldType, u8),
     Convert(PrimitiveType, PrimitiveType),
-    ReferenceArray(u16),
+    ReferenceArray(FieldType),
     ArrayLoad(PrimitiveType),
     ArrayStore(PrimitiveType),
     Load(PrimitiveType, u8),
@@ -93,36 +100,36 @@ pub enum Instruction<Label = i16> {
     ReturnVoid,
     Operate(PrimitiveType, Operator),
     PushByte(u16),
-    Cast(u16),
+    Cast(FieldType),
     /// false -> g, true -> l
     DoubleCmp(bool),
     /// false -> g, true -> l
     FloatCmp(bool),
     Push(Const),
     Arraylength,
-    GetField(u16),
-    GetStatic(u16),
+    GetField(Arc<str>, Arc<str>, FieldType),
+    GetStatic(Arc<str>, Arc<str>, FieldType),
     Goto(Label),
     Label(Label),
     IfACmp(bool, Label),
     IfIcmp(ICmp, Label),
     LCmp,
     IfZcmp(ICmp, Label),
-    IfNull,
-    IfNonNull,
+    IfNull(Label),
+    IfNonNull(Label),
     Dup,
     IInc(u8, u8),
-    Instanceof(u16),
+    Instanceof(Arc<str>),
     InvokeDynamic(u16),
-    InvokeInterface(u16, u8),
-    InvokeSpecial(u16),
-    InvokeVirtual(u16),
-    InvokeStatic(u16),
-    PutField(u16),
-    PutStatic(u16),
-    LoadConst(u16),
-    LoadConst2(u16),
-    New(u16),
+    InvokeInterface(Arc<str>, Arc<str>, MethodDescriptor, u8),
+    InvokeSpecial(Arc<str>, Arc<str>, MethodDescriptor),
+    InvokeVirtual(Arc<str>, Arc<str>, MethodDescriptor),
+    InvokeStatic(Arc<str>, Arc<str>, MethodDescriptor),
+    PutField(Arc<str>, Arc<str>, FieldType),
+    PutStatic(Arc<str>, Arc<str>, FieldType),
+    LoadConst(Constant),
+    LoadConst2(Constant),
+    New(Arc<str>),
     Dup2,
     Throw,
 }
@@ -130,7 +137,7 @@ pub enum Instruction<Label = i16> {
 impl Instruction {
     /// # Errors
     #[allow(clippy::too_many_lines)]
-    pub fn write(&self, writer: &mut impl Write) -> Result<(), Error> {
+    pub fn write(&self, class: &mut Class, writer: &mut impl Write) -> Result<(), Error> {
         match self {
             Self::Label(_) => Ok(()),
             Self::Nop => writer.write_all(&[0]),
@@ -157,15 +164,17 @@ impl Instruction {
                     writer.write_all(&b.to_be_bytes())
                 }
             }
-            Self::LoadConst(i) => {
-                if let Ok(i) = u8::try_from(*i) {
+            Self::LoadConst(c) => {
+                let i = class.register_constant(c.clone()) as u16;
+                if let Ok(i) = u8::try_from(i) {
                     writer.write_all(&[0x12, i])
                 } else {
                     writer.write_all(&[0x13])?;
                     writer.write_all(&i.to_be_bytes())
                 }
             }
-            Self::LoadConst2(i) => {
+            Self::LoadConst2(c) => {
+                let i = class.register_constant(c.clone()) as u16;
                 writer.write_all(&[0x14])?;
                 writer.write_all(&i.to_be_bytes())
             }
@@ -290,38 +299,78 @@ impl Instruction {
             Self::Return(PrimitiveType::Double) => writer.write_all(&[0xAF]),
             Self::Return(PrimitiveType::Reference) => writer.write_all(&[0xB0]),
             Self::ReturnVoid => writer.write_all(&[0xB1]),
-            Self::GetStatic(i) => {
+            Self::GetStatic(c, f, t) => {
                 writer.write_all(&[0xB2])?;
+                let i = class.register_constant(Constant::FieldRef {
+                    class: c.clone(),
+                    name: f.clone(),
+                    field_type: t.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::PutStatic(i) => {
+            Self::PutStatic(c, f, t) => {
                 writer.write_all(&[0xB3])?;
+                let i = class.register_constant(Constant::FieldRef {
+                    class: c.clone(),
+                    name: f.clone(),
+                    field_type: t.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::GetField(i) => {
+            Self::GetField(c, f, t) => {
                 writer.write_all(&[0xB4])?;
+                let i = class.register_constant(Constant::FieldRef {
+                    class: c.clone(),
+                    name: f.clone(),
+                    field_type: t.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::PutField(i) => {
+            Self::PutField(c, f, t) => {
                 writer.write_all(&[0xB5])?;
+                let i = class.register_constant(Constant::FieldRef {
+                    class: c.clone(),
+                    name: f.clone(),
+                    field_type: t.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::InvokeVirtual(i) => {
+            Self::InvokeVirtual(c, m, d) => {
                 writer.write_all(&[0xB6])?;
+                let i = class.register_constant(Constant::MethodRef {
+                    class: c.clone(),
+                    name: m.clone(),
+                    method_type: d.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::InvokeSpecial(i) => {
+            Self::InvokeSpecial(c, m, d) => {
                 writer.write_all(&[0xB7])?;
+                let i = class.register_constant(Constant::MethodRef {
+                    class: c.clone(),
+                    name: m.clone(),
+                    method_type: d.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::InvokeStatic(i) => {
+            Self::InvokeStatic(c, m, d) => {
                 writer.write_all(&[0xB8])?;
+                let i = class.register_constant(Constant::MethodRef {
+                    class: c.clone(),
+                    name: m.clone(),
+                    method_type: d.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::InvokeInterface(i, c) => {
+            Self::InvokeInterface(c, m, d, n) => {
                 writer.write_all(&[0xB9])?;
+                let i = class.register_constant(Constant::MethodRef {
+                    class: c.clone(),
+                    name: m.clone(),
+                    method_type: d.clone(),
+                }) as u16;
                 writer.write_all(&i.to_be_bytes())?;
-                writer.write_all(&[*c, 0])
+                writer.write_all(&[*n, 0])
             }
             Self::InvokeDynamic(i) => {
                 writer.write_all(&[0xBA])?;
@@ -330,11 +379,17 @@ impl Instruction {
             }
             Self::New(i) => {
                 writer.write_all(&[0xBB])?;
+                let i = class.register_constant(Constant::ClassRef(i.clone())) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
             Self::ReferenceArray(r) => {
                 writer.write_all(&[0xBD])?;
-                writer.write_all(&r.to_be_bytes())
+                let i = class.register_constant(if let FieldType::Object(c) = r {
+                    Constant::ClassRef(c.clone())
+                } else {
+                    Constant::ClassRef(r.repr())
+                }) as u16;
+                writer.write_all(&i.to_be_bytes())
             }
             Self::NewArray(t) => writer.write_all(&[
                 0xBC,
@@ -354,26 +409,35 @@ impl Instruction {
             Self::Throw => writer.write_all(&[0xBF]),
             Self::Cast(i) => {
                 writer.write_all(&[0xC0])?;
+                let i = class.register_constant(Constant::ClassRef(i.repr())) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
             Self::Instanceof(i) => {
                 writer.write_all(&[0xC1])?;
+                let i = class.register_constant(Constant::ClassRef(i.clone())) as u16;
                 writer.write_all(&i.to_be_bytes())
             }
             Self::MultiANewArray(i, d) => {
                 writer.write_all(&[0xC5])?;
+                let i = class.register_constant(Constant::ClassRef(i.repr())) as u16;
                 writer.write_all(&i.to_be_bytes())?;
                 writer.write_all(&[*d])
             }
-            Self::IfNull => writer.write_all(&[0xC6]),
-            Self::IfNonNull => writer.write_all(&[0xC7]),
+            Self::IfNull(branch) => {
+                writer.write_all(&[0xC6])?;
+                writer.write_all(&branch.to_be_bytes())
+            }
+            Self::IfNonNull(branch) => {
+                writer.write_all(&[0xC7])?;
+                writer.write_all(&branch.to_be_bytes())
+            }
             _ => todo!(),
         }
     }
 }
 
 impl<T> Instruction<T> {
-    pub fn size(&self) -> usize {
+    pub fn size(&self, class: &mut Class) -> usize {
         match self {
             Self::Nop
             | Self::Pop
@@ -400,8 +464,16 @@ impl<T> Instruction<T> {
                     2
                 }
             }
-            Self::PushByte(i) | Self::LoadConst(i) => {
+            Self::PushByte(i) => {
                 if u8::try_from(*i).is_ok() {
+                    2
+                } else {
+                    3
+                }
+            }
+            Self::LoadConst(i) => {
+                let i = class.register_constant(i.clone());
+                if u8::try_from(i).is_ok() {
                     2
                 } else {
                     3
@@ -411,24 +483,24 @@ impl<T> Instruction<T> {
             Self::NewArray(_)
             | Self::ReferenceArray(_)
             | Self::Cast(_)
-            | Self::IfNull
-            | Self::IfNonNull
-            | Self::GetField(_)
-            | Self::GetStatic(_)
+            | Self::IfNull(_)
+            | Self::IfNonNull(_)
+            | Self::GetField(..)
+            | Self::GetStatic(..)
             | Self::Goto(_)
             | Self::IfACmp(_, _)
             | Self::IfIcmp(_, _)
             | Self::IfZcmp(_, _)
             | Self::IInc(_, _)
             | Self::Instanceof(_)
-            | Self::InvokeSpecial(_)
-            | Self::InvokeVirtual(_)
-            | Self::InvokeStatic(_)
-            | Self::PutField(_)
-            | Self::PutStatic(_)
+            | Self::InvokeSpecial(..)
+            | Self::InvokeVirtual(..)
+            | Self::InvokeStatic(..)
+            | Self::PutField(..)
+            | Self::PutStatic(..)
             | Self::LoadConst2(_)
             | Self::New(_) => 3,
-            Self::InvokeDynamic(_) | Self::InvokeInterface(_, _) => 5,
+            Self::InvokeDynamic(_) | Self::InvokeInterface(..) => 5,
         }
     }
 
@@ -454,26 +526,26 @@ impl<T> Instruction<T> {
             Self::FloatCmp(a) => Instruction::FloatCmp(a),
             Self::Push(a) => Instruction::Push(a),
             Self::Arraylength => Instruction::Arraylength,
-            Self::GetField(a) => Instruction::GetField(a),
-            Self::GetStatic(a) => Instruction::GetStatic(a),
+            Self::GetField(a, b, c) => Instruction::GetField(a, b, c),
+            Self::GetStatic(a, b, c) => Instruction::GetStatic(a, b, c),
             Self::Goto(a) => Instruction::Goto(func(a)),
             Self::Label(a) => Instruction::Label(func(a)),
             Self::IfACmp(a, b) => Instruction::IfACmp(a, func(b)),
             Self::IfIcmp(a, b) => Instruction::IfIcmp(a, func(b)),
             Self::LCmp => Instruction::LCmp,
             Self::IfZcmp(a, b) => Instruction::IfZcmp(a, func(b)),
-            Self::IfNull => Instruction::IfNull,
-            Self::IfNonNull => Instruction::IfNonNull,
+            Self::IfNull(a) => Instruction::IfNull(func(a)),
+            Self::IfNonNull(a) => Instruction::IfNonNull(func(a)),
             Self::Dup => Instruction::Dup,
             Self::IInc(a, b) => Instruction::IInc(a, b),
             Self::Instanceof(a) => Instruction::Instanceof(a),
             Self::InvokeDynamic(a) => Instruction::InvokeDynamic(a),
-            Self::InvokeInterface(a, b) => Instruction::InvokeInterface(a, b),
-            Self::InvokeSpecial(a) => Instruction::InvokeSpecial(a),
-            Self::InvokeVirtual(a) => Instruction::InvokeVirtual(a),
-            Self::InvokeStatic(a) => Instruction::InvokeStatic(a),
-            Self::PutField(a) => Instruction::PutField(a),
-            Self::PutStatic(a) => Instruction::PutStatic(a),
+            Self::InvokeInterface(a, b, c, d) => Instruction::InvokeInterface(a, b, c, d),
+            Self::InvokeSpecial(a, b, c) => Instruction::InvokeSpecial(a, b, c),
+            Self::InvokeVirtual(a, b, c) => Instruction::InvokeVirtual(a, b, c),
+            Self::InvokeStatic(a, b, c) => Instruction::InvokeStatic(a, b, c),
+            Self::PutField(a, b, c) => Instruction::PutField(a, b, c),
+            Self::PutStatic(a, b, c) => Instruction::PutStatic(a, b, c),
             Self::LoadConst(a) => Instruction::LoadConst(a),
             Self::LoadConst2(a) => Instruction::LoadConst2(a),
             Self::New(a) => Instruction::New(a),

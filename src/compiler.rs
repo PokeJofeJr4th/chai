@@ -66,15 +66,17 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             symbol_table.insert(label.clone(), offset);
             required_symbols.push(offset);
         }
-        offset += instr.size();
+        offset += instr.size(class);
     }
     println!("{offset}");
     let mut code_bytes = Vec::new();
     let mut offset = 0;
     for instr in body {
         let instr = instr.map(|sym| *symbol_table.get(&sym).unwrap() as i16 - offset);
-        offset += instr.size() as i16;
-        instr.write(&mut code_bytes).map_err(|e| e.to_string())?;
+        offset += instr.size(class) as i16;
+        instr
+            .write(class, &mut code_bytes)
+            .map_err(|e| e.to_string())?;
         println!("{offset} {} {instr:?}", code_bytes.len());
     }
     println!("{offset} {}", code_bytes.len());
@@ -140,9 +142,7 @@ fn compile_expression(
         IRExpression::LocalVar(ty, local_idx) => {
             Ok(vec![Instruction::Load(ty.to_primitive(), local_idx as u8)])
         }
-        IRExpression::String(s) => Ok(vec![Instruction::LoadConst(
-            class.register_constant(Constant::String(s)) as u16,
-        )]),
+        IRExpression::String(s) => Ok(vec![Instruction::LoadConst(Constant::String(s))]),
         IRExpression::Int(i) => Ok(vec![match i {
             -1 => Instruction::Push(Const::IM1),
             0 => Instruction::Push(Const::I0),
@@ -152,7 +152,7 @@ fn compile_expression(
             4 => Instruction::Push(Const::I4),
             5 => Instruction::Push(Const::I5),
             i => i16::try_from(i).map_or_else(
-                |_| Instruction::LoadConst(class.register_constant(Constant::Int(i)) as u16),
+                |_| Instruction::LoadConst(Constant::Int(i)),
                 |i| Instruction::PushByte(i as u16),
             ),
         }]),
@@ -164,14 +164,14 @@ fn compile_expression(
         } else if f == 2.0 {
             Instruction::Push(Const::F2)
         } else {
-            Instruction::LoadConst(class.register_constant(Constant::Float(f)) as u16)
+            Instruction::LoadConst(Constant::Float(f))
         }]),
         IRExpression::Double(_) => todo!(),
         IRExpression::MakeTuple(values) => {
             let mut code = compile_expression(IRExpression::Int(values.len() as i32), class)?;
-            let obj_ty =
-                class.register_constant(Constant::ClassRef("java/lang/Object".into())) as u16;
-            code.push(Instruction::ReferenceArray(obj_ty));
+            code.push(Instruction::ReferenceArray(FieldType::Object(
+                "java/lang/Object".into(),
+            )));
             for (idx, value) in values.into_iter().enumerate() {
                 code.push(Instruction::Dup);
                 code.extend(compile_expression(IRExpression::Int(idx as i32), class)?);
@@ -315,11 +315,7 @@ fn compile_expression(
             Ok(code)
         }
         IRExpression::Invoke(func, args) => {
-            let func_args: Vec<_> = func
-                .params
-                .iter()
-                .map(|param| param.to_field_type())
-                .collect();
+            let func_args: Vec<_> = func.params.iter().map(IRFieldType::to_field_type).collect();
             let method_type = MethodDescriptor {
                 parameter_size: func_args.iter().map(FieldType::get_size).sum(),
                 parameters: func_args,
@@ -329,21 +325,23 @@ fn compile_expression(
                     Some(func.ret.to_field_type())
                 },
             };
-            let method_ref = Constant::MethodRef {
-                class: func.class.clone(),
-                name: func.name.clone(),
-                method_type,
-            };
-            let method_ref = class.register_constant(method_ref) as u16;
 
             let mut code = Vec::new();
             for arg in args {
                 code.extend(compile_expression(arg, class)?);
             }
             if func.access.is_static() {
-                code.push(Instruction::InvokeStatic(method_ref));
+                code.push(Instruction::InvokeStatic(
+                    func.class.clone(),
+                    func.name.clone(),
+                    method_type,
+                ));
             } else {
-                code.push(Instruction::InvokeVirtual(method_ref));
+                code.push(Instruction::InvokeVirtual(
+                    func.class.clone(),
+                    func.name.clone(),
+                    method_type,
+                ));
             }
             Ok(code)
         }
