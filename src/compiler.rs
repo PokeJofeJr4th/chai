@@ -3,17 +3,14 @@ use std::collections::HashMap;
 use jvmrs_lib::{access, Constant, FieldType, MethodDescriptor};
 
 use crate::{
-    interpreter::{
-        context::FunctionInfo,
-        ir::{IRExpression, IRFunction, IRStatement, Symbol},
-    },
-    parser::syntax::{BinaryOperator, UnaryOperator},
+    interpreter::ir::{IRExpression, IRFunction, Symbol},
+    parser::syntax::BinaryOperator,
     types::{IRFieldType, InnerFieldType},
 };
 
 use self::{
     class::{AttributeInfo, Class, MethodInfo},
-    instruction::{Const, ICmp, Operator, PrimitiveType},
+    instruction::{Const, ICmp, Operator, PrimitiveType, VerificationType},
 };
 
 mod class;
@@ -33,6 +30,29 @@ pub fn compile(syn: Vec<IRFunction>) -> Result<Class, String> {
     Ok(class)
 }
 
+fn write_verification_type(ty: &VerificationType, class: &mut Class, bytes: &mut Vec<u8>) {
+    match ty {
+        VerificationType::Top => bytes.push(0),
+        VerificationType::Int => bytes.push(1),
+        VerificationType::Float => bytes.push(2),
+        VerificationType::Long => bytes.push(4),
+        VerificationType::Double => bytes.push(3),
+        VerificationType::Null => bytes.push(5),
+        VerificationType::UninitializedThis => bytes.push(6),
+        VerificationType::Object(obj) => {
+            bytes.push(7);
+            bytes.extend(
+                (class.register_constant(Constant::ClassRef(obj.clone())) as u16).to_be_bytes(),
+            );
+        }
+        VerificationType::UninitializedVar(i) => {
+            bytes.push(8);
+            bytes.extend(i.to_be_bytes());
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, String> {
     let mut body: Vec<Instruction> = Vec::new();
     body.extend(compile_expression(func.body, class)?);
@@ -41,6 +61,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         None => body.push(Instruction::ReturnVoid),
     }
     println!("{body:?}");
+    println!("{:?}", func.locals);
 
     let mut code = Vec::new();
 
@@ -61,6 +82,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
     let mut required_symbols: Vec<usize> = Vec::new();
     let mut offset: usize = 0;
+    let verification_type_map = generate_stack_map(&body);
     for instr in &body {
         if let Instruction::Label(label) = instr {
             symbol_table.insert(label.clone(), offset);
@@ -68,6 +90,10 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         }
         offset += instr.size(class);
     }
+    let verification_type_map: HashMap<usize, Vec<VerificationType>> = verification_type_map
+        .into_iter()
+        .map(|(k, v)| (*symbol_table.get(&k).unwrap(), v))
+        .collect();
     println!("{offset}");
     let mut code_bytes = Vec::new();
     let mut offset = 0;
@@ -91,19 +117,35 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     let mut stack_map = Vec::new();
     required_symbols.dedup();
     required_symbols.retain(|x| *x != 0);
+    let local_types: Vec<_> = func
+        .locals
+        .into_iter()
+        .map(|v| VerificationType::from(v.to_field_type()))
+        .collect();
     for (idx, &pc) in required_symbols.iter().enumerate() {
         let offset = if idx == 0 {
             pc - last_pc
         } else {
             pc - last_pc - 1
         };
-        last_pc = pc;
-        if offset <= 63 {
+        if let Some(stack_types) = verification_type_map.get(&pc) {
+            stack_map.push(255);
+            stack_map.extend((offset as u16).to_be_bytes());
+            stack_map.extend((local_types.len() as u16).to_be_bytes());
+            for t in &local_types {
+                write_verification_type(t, class, &mut stack_map);
+            }
+            stack_map.extend((stack_types.len() as u16).to_be_bytes());
+            for t in stack_types {
+                write_verification_type(t, class, &mut stack_map);
+            }
+        } else if offset <= 63 {
             stack_map.push(offset as u8);
         } else {
             stack_map.push(251);
             stack_map.extend((offset as u16).to_be_bytes());
         }
+        last_pc = pc;
     }
     // write in the stack map
     code.extend(
@@ -438,4 +480,137 @@ fn compile_modify(
         }
         other => Err(format!("{other:?} isn't a data location")),
     }
+}
+
+#[allow(clippy::too_many_lines)]
+fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationType>> {
+    fn find_symbol(code: &[Instruction], sym: &Symbol) -> usize {
+        code.iter()
+            .position(|i| matches!(i, Instruction::Label(l) if l == sym))
+            .unwrap()
+    }
+
+    fn visit_stack_map(
+        code: &[Instruction],
+        index: u16,
+        current_stack: &mut Vec<VerificationType>,
+        finished_stacks: &mut HashMap<Symbol, Vec<VerificationType>>,
+    ) {
+        for i in index.. {
+            match &code[i as usize] {
+                Instruction::Goto(label) => {
+                    if !finished_stacks.contains_key(label) {
+                        finished_stacks.insert(label.clone(), current_stack.clone());
+                        visit_stack_map(
+                            code,
+                            find_symbol(code, label) as u16,
+                            current_stack,
+                            finished_stacks,
+                        );
+                    }
+                    return;
+                }
+                Instruction::IfACmp(_, sym) | Instruction::IfIcmp(_, sym) => {
+                    current_stack.pop();
+                    current_stack.pop();
+                    if !finished_stacks.contains_key(sym) {
+                        finished_stacks.insert(sym.clone(), current_stack.clone());
+                        visit_stack_map(
+                            code,
+                            find_symbol(code, sym) as u16,
+                            &mut current_stack.clone(),
+                            finished_stacks,
+                        );
+                    }
+                }
+                Instruction::IfZcmp(_, sym) => {
+                    current_stack.pop();
+                    if !finished_stacks.contains_key(sym) {
+                        finished_stacks.insert(sym.clone(), current_stack.clone());
+                        visit_stack_map(
+                            code,
+                            find_symbol(code, sym) as u16,
+                            &mut current_stack.clone(),
+                            finished_stacks,
+                        );
+                    }
+                }
+                Instruction::Operate(
+                    _,
+                    Operator::Add
+                    | Operator::And
+                    | Operator::Div
+                    | Operator::Mul
+                    | Operator::Rem
+                    | Operator::Shl
+                    | Operator::Shr
+                    | Operator::Sub
+                    | Operator::Ushr
+                    | Operator::Xor,
+                )
+                | Instruction::Store(..) => {
+                    current_stack.pop();
+                }
+                Instruction::Load(ty, _) => {
+                    current_stack.push(VerificationType::from(*ty));
+                }
+                Instruction::Push(c) => {
+                    current_stack.push(VerificationType::from(PrimitiveType::from(*c)));
+                }
+                Instruction::FloatCmp(_) | Instruction::DoubleCmp(_) | Instruction::LCmp => {
+                    current_stack.pop();
+                    current_stack.pop();
+                    current_stack.push(VerificationType::Int);
+                }
+                Instruction::Return(_) | Instruction::ReturnVoid => return,
+                Instruction::Label(sym) => {
+                    if !finished_stacks.contains_key(sym) {
+                        finished_stacks.insert(sym.clone(), current_stack.clone());
+                    }
+                }
+                Instruction::InvokeStatic(_, _, descriptor) => {
+                    for _ in &descriptor.parameters {
+                        // TODO: verify the types?
+                        current_stack.pop();
+                    }
+                    if let Some(ret) = descriptor.return_type.clone() {
+                        current_stack.push(VerificationType::from(ret));
+                    }
+                }
+                Instruction::ReferenceArray(a) => {
+                    current_stack.push(VerificationType::from(a.clone()));
+                }
+                Instruction::ArrayStore(_) => {
+                    current_stack.pop();
+                    current_stack.pop();
+                    current_stack.pop();
+                }
+                Instruction::ArrayLoad(ty) => {
+                    current_stack.pop();
+                    current_stack.pop();
+                    current_stack.push(VerificationType::from(*ty));
+                }
+                Instruction::Dup | Instruction::Dup2 => {
+                    current_stack.push(current_stack.last().unwrap().clone());
+                }
+                Instruction::PushByte(_) => current_stack.push(VerificationType::Int),
+                Instruction::LoadConst(c) | Instruction::LoadConst2(c) => match c {
+                    Constant::Int(_) => current_stack.push(VerificationType::Int),
+                    Constant::Long(_) => current_stack.push(VerificationType::Long),
+                    Constant::Float(_) => current_stack.push(VerificationType::Float),
+                    Constant::Double(_) => current_stack.push(VerificationType::Double),
+                    Constant::StringRef(_) | Constant::String(_) => {
+                        current_stack.push(VerificationType::Object("java/lang/String".into()));
+                    }
+                    other => todo!("Load Const {other:?}"),
+                },
+                other => todo!("Visit StackMap {other:?}"),
+            }
+        }
+    }
+
+    let mut map = HashMap::new();
+    visit_stack_map(code, 0, &mut Vec::new(), &mut map);
+    println!("Stack Map: {map:?}");
+    map
 }

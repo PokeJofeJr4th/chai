@@ -57,6 +57,28 @@ pub enum Const {
     Null,
 }
 
+impl From<Const> for PrimitiveType {
+    fn from(value: Const) -> Self {
+        match value {
+            Const::D0 => Self::Double,
+            Const::D1 => Self::Double,
+            Const::F0 => Self::Float,
+            Const::F1 => Self::Float,
+            Const::F2 => Self::Float,
+            Const::IM1 => Self::Int,
+            Const::I0 => Self::Int,
+            Const::I1 => Self::Int,
+            Const::I2 => Self::Int,
+            Const::I3 => Self::Int,
+            Const::I4 => Self::Int,
+            Const::I5 => Self::Int,
+            Const::L0 => Self::Long,
+            Const::L1 => Self::Long,
+            Const::Null => Self::Reference,
+        }
+    }
+}
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ICmp {
@@ -551,6 +573,54 @@ impl<T> Instruction<T> {
             Self::New(a) => Instruction::New(a),
             Self::Dup2 => Instruction::Dup2,
             Self::Throw => Instruction::Throw,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum VerificationType {
+    Top,
+    Int,
+    Float,
+    Long,
+    Double,
+    Null,
+    UninitializedThis,
+    /// ClassInfo constant pointer
+    Object(Arc<str>),
+    /// Uninitialized variable; offset is the `new` instruction
+    UninitializedVar(u16),
+}
+
+impl From<PrimitiveType> for VerificationType {
+    fn from(value: PrimitiveType) -> Self {
+        match value {
+            PrimitiveType::Boolean
+            | PrimitiveType::Byte
+            | PrimitiveType::Short
+            | PrimitiveType::Int
+            | PrimitiveType::Char => Self::Int,
+            PrimitiveType::Long => Self::Long,
+            PrimitiveType::Float => Self::Float,
+            PrimitiveType::Double => Self::Double,
+            PrimitiveType::Reference => Self::Null,
+        }
+    }
+}
+
+impl From<FieldType> for VerificationType {
+    fn from(value: FieldType) -> Self {
+        match value {
+            FieldType::Byte
+            | FieldType::Char
+            | FieldType::Int
+            | FieldType::Boolean
+            | FieldType::Short => Self::Int,
+            FieldType::Double => Self::Double,
+            FieldType::Float => Self::Float,
+            FieldType::Long => Self::Long,
+            FieldType::Object(o) => Self::Object(o),
+            FieldType::Array(t) => Self::Object(format!("[{}", t.repr()).into()),
         }
     }
 }
