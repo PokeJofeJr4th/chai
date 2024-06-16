@@ -69,7 +69,7 @@ pub fn resolve_imports(
                         name: "none".into(),
                         params: Vec::new(),
                         ret: InnerFieldType::Object {
-                            base: "java/lang/Optional".into(),
+                            base: "java/util/Optional".into(),
                             generics: Vec::new(),
                         }
                         .into(),
@@ -87,7 +87,7 @@ pub fn resolve_imports(
                         }
                         .into()],
                         ret: InnerFieldType::Object {
-                            base: "java/lang/Optional".into(),
+                            base: "java/util/Optional".into(),
                             generics: Vec::new(),
                         }
                         .into(),
@@ -120,7 +120,7 @@ pub fn resolve_imports(
                 context.insert(
                     "Optional".into(),
                     CtxItem::Class(ClassInfo {
-                        name: "java/lang/Optional".into(),
+                        name: "java/util/Optional".into(),
                         superclass: "java/lang/Object".into(),
                         fields: Vec::new(),
                         methods: HashMap::new(),
@@ -164,7 +164,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
                 body: _,
             } => {
                 let function_info = FunctionInfo {
-                    class: "<this>".into(),
+                    class: "Chai".into(),
                     access: access!(private static),
                     name: name.clone(),
                     params: params.iter().map(|(ty, _)| ty.clone()).collect(),
@@ -611,7 +611,7 @@ fn interpret_syntax(
                             inc: Box::new(IRExpression::BinaryOperation(
                                 ty.clone(),
                                 Box::new(IRExpression::LocalVar(ty.clone(), var_idx)),
-                                BinaryOperator::Add,
+                                BinaryOperator::AddEq,
                                 Box::new(IRExpression::Int(1)),
                             )),
                             body: Box::new(body),

@@ -99,11 +99,11 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     let mut offset = 0;
     for instr in body {
         let instr = instr.map(|sym| *symbol_table.get(&sym).unwrap() as i16 - offset);
+        println!("{offset} {} {instr:?}", code_bytes.len());
         offset += instr.size(class) as i16;
         instr
             .write(class, &mut code_bytes)
             .map_err(|e| e.to_string())?;
-        println!("{offset} {} {instr:?}", code_bytes.len());
     }
     println!("{offset} {}", code_bytes.len());
     code.extend((code_bytes.len() as u32).to_be_bytes());
