@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use jvmrs_lib::{access, Constant, FieldType, MethodDescriptor};
 
 use crate::{
     interpreter::ir::{IRExpression, IRFunction, Symbol},
-    parser::syntax::BinaryOperator,
+    parser::syntax::{BinaryOperator, UnaryOperator},
     types::{IRFieldType, InnerFieldType},
 };
 
@@ -122,6 +122,16 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         .into_iter()
         .map(|v| VerificationType::from(v.to_field_type()))
         .collect();
+    if required_symbols.first() == Some(&0) {
+        stack_map.push(255);
+        stack_map.extend((offset as u16).to_be_bytes());
+        stack_map.extend((local_types.len() as u16).to_be_bytes());
+        for t in &local_types {
+            write_verification_type(t, class, &mut stack_map);
+        }
+        stack_map.extend((0u16).to_be_bytes());
+        required_symbols.remove(0);
+    }
     for (idx, &pc) in required_symbols.iter().enumerate() {
         let offset = if idx == 0 {
             pc - last_pc
@@ -184,7 +194,7 @@ fn compile_expression(
         IRExpression::LocalVar(ty, local_idx) => {
             Ok(vec![Instruction::Load(ty.to_primitive(), local_idx as u8)])
         }
-        IRExpression::String(s) => Ok(vec![Instruction::LoadConst(Constant::String(s))]),
+        IRExpression::String(s) => Ok(vec![Instruction::LoadConst(Constant::StringRef(s))]),
         IRExpression::Int(i) => Ok(vec![match i {
             -1 => Instruction::Push(Const::IM1),
             0 => Instruction::Push(Const::I0),
@@ -302,8 +312,33 @@ fn compile_expression(
             code.push(Instruction::ArrayLoad(ty.to_primitive()));
             Ok(code)
         }
-        IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{ty:?} {lhs:?} {op:?} {rhs:?}"),
-        IRExpression::UnaryOperation(ty, op, inner) => todo!("{op:?} {inner:?}"),
+        IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{lhs:?} {op:?}<{ty:?}> {rhs:?}"),
+        IRExpression::UnaryOperation(ty, UnaryOperator::Box, inner) => {
+            let class_name: Arc<str> = Arc::from(match ty.ty {
+                InnerFieldType::Boolean => "java/lang/Boolean",
+                InnerFieldType::Byte => "java/lang/Byte",
+                InnerFieldType::Short => "java/lang/Short",
+                InnerFieldType::Int => "java/lang/Integer",
+                InnerFieldType::Long => "java/lang/Long",
+                InnerFieldType::Float => "java/lang/Float",
+                InnerFieldType::Double => "java/lang/Double",
+                InnerFieldType::Char => "java/lang/Character",
+                InnerFieldType::Object { base, generics } => todo!(),
+                InnerFieldType::Tuple(_) => todo!(),
+            });
+            let mut code = compile_expression(*inner, class)?;
+            code.push(Instruction::InvokeStatic(
+                class_name.clone(),
+                Arc::from("value_of"),
+                MethodDescriptor {
+                    parameter_size: ty.get_size(),
+                    parameters: vec![ty.to_field_type()],
+                    return_type: Some(FieldType::Object(class_name)),
+                },
+            ));
+            Ok(code)
+        }
+        IRExpression::UnaryOperation(ty, op, inner) => todo!("{op:?} <{ty:?}> {inner:?}"),
         IRExpression::Block(stmts, ret) => {
             let mut code = Vec::new();
             for stmt in stmts {

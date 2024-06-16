@@ -197,27 +197,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
         let mut local_var_table = Vec::new();
         let mut param_types = Vec::new();
         for (ty, param) in params {
-            let ty = if let IRFieldType {
-                ty: InnerFieldType::Object { base, generics },
-                array_depth,
-            } = ty
-            {
-                let Some(resolved) = function_context.get(base) else {
-                    return Err(format!("Unresolved identifier `{base}`; expected a type"));
-                };
-                let CtxItem::Class(class_info) = resolved else {
-                    return Err(format!("Expected a class type; got `{resolved:?}`"));
-                };
-                IRFieldType {
-                    ty: InnerFieldType::Object {
-                        base: class_info.name.clone(),
-                        generics: generics.clone(),
-                    },
-                    array_depth: *array_depth,
-                }
-            } else {
-                ty.clone()
-            };
+            let ty = resolve_type(ty, &function_context)?;
             param_types.push(ty.clone());
             function_context.insert(
                 param.clone(),
@@ -241,12 +221,38 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
         ir_functions.push(IRFunction {
             name: name.clone(),
             params: param_types,
-            ret: return_type.clone(),
+            ret: return_type.as_ref().map_or(Ok(None), |rt| {
+                resolve_type(rt, &function_context).map(Option::Some)
+            })?,
             locals: local_var_table.into_iter().map(|(ty, _)| ty).collect(),
             body,
         });
     }
     Ok(ir_functions)
+}
+
+fn resolve_type(ty: &IRFieldType, function_context: &Context) -> Result<IRFieldType, String> {
+    if let IRFieldType {
+        ty: InnerFieldType::Object { base, generics },
+        array_depth,
+    } = ty
+    {
+        let Some(resolved) = function_context.get(base) else {
+            return Err(format!("Unresolved identifier `{base}`; expected a type"));
+        };
+        let CtxItem::Class(class_info) = resolved else {
+            return Err(format!("Expected a class type; got `{resolved:?}`"));
+        };
+        Ok(IRFieldType {
+            ty: InnerFieldType::Object {
+                base: class_info.name.clone(),
+                generics: generics.clone(),
+            },
+            array_depth: *array_depth,
+        })
+    } else {
+        Ok(ty.clone())
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -258,7 +264,9 @@ fn type_hint(
     match syn {
         Expression::Ident(i) => {
             let Some(item) = function_context.get(i) else {
-                return Err(format!("Unresolved Identifier `{i}`; expected an expression"));
+                return Err(format!(
+                    "Unresolved Identifier `{i}`; expected an expression"
+                ));
             };
             match item {
                 CtxItem::Variable(_, ty) => Ok(TypeHint::Concrete(ty.clone())),
@@ -442,7 +450,13 @@ fn interpret_syntax(
         ) => {
             let mut out = Vec::new();
             for (element, ty) in elements.iter().zip(tup_types) {
-                let expr = interpret_syntax(element, function_context, local_var_table, ty)?;
+                let expr =
+                    interpret_syntax(element, function_context, local_var_table, ty.clone())?;
+                let expr = if ty.is_primitive() {
+                    IRExpression::UnaryOperation(ty, UnaryOperator::Box, Box::new(expr))
+                } else {
+                    expr
+                };
                 out.push(expr);
             }
             Ok(IRExpression::MakeTuple(out))
@@ -480,8 +494,17 @@ fn interpret_syntax(
             let (mut output, method_info) =
                 resolve_function(function, &arg_types, function_context, local_var_table)?;
 
-            for (arg, ty) in args.iter().zip(&method_info.params) {
+            for ((arg, ty), hint) in args.iter().zip(&method_info.params).zip(arg_types) {
                 let arg = interpret_syntax(arg, function_context, local_var_table, ty.clone())?;
+                let arg = if hint.is_primitive() && !ty.is_primitive() {
+                    IRExpression::UnaryOperation(
+                        hint.as_concrete(),
+                        UnaryOperator::Box,
+                        Box::new(arg),
+                    )
+                } else {
+                    arg
+                };
                 arg_expr.push(arg);
             }
             Ok(IRExpression::Invoke(method_info, arg_expr))

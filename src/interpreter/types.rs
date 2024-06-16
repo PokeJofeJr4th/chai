@@ -153,6 +153,24 @@ impl TypeHint {
             }
         }
     }
+
+    #[must_use]
+    pub const fn is_primitive(&self) -> bool {
+        matches!(
+            self,
+            Self::Integral
+                | Self::Floating
+                | Self::Concrete(IRFieldType {
+                    ty: InnerFieldType::Byte
+                        | InnerFieldType::Short
+                        | InnerFieldType::Int
+                        | InnerFieldType::Long
+                        | InnerFieldType::Float
+                        | InnerFieldType::Double,
+                    array_depth: 0
+                })
+        )
+    }
 }
 
 /// # Errors

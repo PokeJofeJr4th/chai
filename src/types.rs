@@ -110,7 +110,8 @@ impl IRFieldType {
         ty
     }
 
-    pub fn to_primitive(&self) -> PrimitiveType {
+    #[must_use]
+    pub const fn to_primitive(&self) -> PrimitiveType {
         if self.array_depth > 0 {
             PrimitiveType::Reference
         } else {
@@ -123,18 +124,44 @@ impl IRFieldType {
                 InnerFieldType::Float => PrimitiveType::Float,
                 InnerFieldType::Double => PrimitiveType::Double,
                 InnerFieldType::Char => PrimitiveType::Char,
-                InnerFieldType::Object { .. } => PrimitiveType::Reference,
-                InnerFieldType::Tuple(_) => PrimitiveType::Reference,
+                InnerFieldType::Object { .. } | InnerFieldType::Tuple(_) => {
+                    PrimitiveType::Reference
+                }
             }
         }
     }
 
-    pub fn is_void(&self) -> bool {
+    #[must_use]
+    pub const fn is_primitive(&self) -> bool {
         self.array_depth == 0
-            && match &self.ty {
-                InnerFieldType::Tuple(e) if e.is_empty() => true,
-                _ => false,
+            && matches!(
+                self.ty,
+                InnerFieldType::Boolean
+                    | InnerFieldType::Byte
+                    | InnerFieldType::Char
+                    | InnerFieldType::Double
+                    | InnerFieldType::Float
+                    | InnerFieldType::Int
+                    | InnerFieldType::Long
+                    | InnerFieldType::Short
+            )
+    }
+
+    #[must_use]
+    pub fn is_void(&self) -> bool {
+        self.array_depth == 0 && matches!(&self.ty, InnerFieldType::Tuple(e) if e.is_empty())
+    }
+
+    #[must_use]
+    pub const fn get_size(&self) -> usize {
+        if self.array_depth == 0 {
+            match self.ty {
+                InnerFieldType::Double | InnerFieldType::Long => 2,
+                _ => 1,
             }
+        } else {
+            1
+        }
     }
 }
 

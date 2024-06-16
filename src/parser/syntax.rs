@@ -83,6 +83,10 @@ pub enum UnaryOperator {
     Not,
     Minus,
     Try,
+    /// Convert a primitive type to an Object type (e.g. int -> Integer)
+    Box,
+    /// Convert an Object type to a primitive type (e.g. Integer -> int)
+    Unbox,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
