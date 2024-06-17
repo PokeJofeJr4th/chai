@@ -2,8 +2,6 @@ use std::{error::Error, io::Write, sync::Arc};
 
 use jvmrs_lib::{access, AccessFlags, ClassVersion, Constant, MethodDescriptor};
 
-use super::instruction::Instruction;
-
 #[derive(Debug)]
 pub struct FieldInfo {}
 
@@ -22,6 +20,7 @@ pub struct AttributeInfo {
 }
 
 impl AttributeInfo {
+    #[allow(clippy::cast_possible_truncation)]
     pub fn write(&self, writer: &mut impl Write, class: &Class) -> Result<(), Box<dyn Error>> {
         writer.write_all(
             &(class
@@ -36,6 +35,7 @@ impl AttributeInfo {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_field_names)]
 pub struct Class {
     access_flags: AccessFlags,
     constant_pool: Vec<Constant>,
@@ -77,19 +77,15 @@ impl Class {
 
     #[allow(clippy::too_many_lines)]
     pub fn write(&mut self, writer: &mut impl Write) -> Result<(), Box<dyn Error>> {
-        let this_class =
-            u16::try_from(self.register_constant(Constant::ClassRef(self.this_class.clone())))?;
-        let super_class =
-            self.register_constant(Constant::ClassRef(self.super_class.clone())) as u16;
+        let this_class = self.register_constant(Constant::ClassRef(self.this_class.clone()));
+        let super_class = self.register_constant(Constant::ClassRef(self.super_class.clone()));
         let interfaces: Vec<u16> = self
             .interfaces
             .clone()
             .into_iter()
-            .map(|int| {
-                Self::insert_constant(&mut self.constant_pool, Constant::ClassRef(int)) as u16
-            })
+            .map(|int| Self::insert_constant(&mut self.constant_pool, Constant::ClassRef(int)))
             .collect();
-        let mut methods: Vec<(AccessFlags, u16, u16, Vec<AttributeInfo>)> = self
+        let methods: Vec<(AccessFlags, u16, u16, Vec<AttributeInfo>)> = self
             .methods
             .iter()
             .map(|method| {
@@ -98,11 +94,11 @@ impl Class {
                     Self::insert_constant(
                         &mut self.constant_pool,
                         Constant::String(method.name.clone()),
-                    ) as u16,
+                    ),
                     Self::insert_constant(
                         &mut self.constant_pool,
                         Constant::String(method.ty.repr()),
-                    ) as u16,
+                    ),
                     method.attributes.clone(),
                 )
             })
@@ -147,13 +143,14 @@ impl Class {
         Ok(())
     }
 
-    pub fn register_constant(&mut self, constant: Constant) -> usize {
+    pub fn register_constant(&mut self, constant: Constant) -> u16 {
         Self::insert_constant(&mut self.constant_pool, constant)
     }
 
-    pub fn insert_constant(constant_pool: &mut Vec<Constant>, constant: Constant) -> usize {
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn insert_constant(constant_pool: &mut Vec<Constant>, constant: Constant) -> u16 {
         if let Some(idx) = constant_pool.iter().position(|c| c == &constant) {
-            return idx + 1;
+            return (idx + 1) as u16;
         }
         match &constant {
             Constant::ClassRef(class_name) => {
@@ -208,7 +205,7 @@ impl Class {
             _ => {}
         }
         constant_pool.push(constant);
-        constant_pool.len()
+        constant_pool.len() as u16
     }
 
     fn get_constant(&self, constant: &Constant) -> Option<usize> {
@@ -335,9 +332,9 @@ impl Class {
             Constant::MethodHandle(_) => todo!(),
             Constant::MethodType(_) => todo!(),
             Constant::InvokeDynamic {
-                bootstrap_index,
-                method_name,
-                method_type,
+                bootstrap_index: _,
+                method_name: _,
+                method_type: _,
             } => todo!(),
             Constant::Placeholder => todo!(),
         }

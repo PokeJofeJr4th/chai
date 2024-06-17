@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use jvmrs_lib::{access, FieldType};
+use jvmrs_lib::access;
 
 use crate::{
     parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator},
@@ -9,8 +9,8 @@ use crate::{
 
 use self::{
     context::{ClassInfo, Context, CtxItem, FunctionInfo},
-    ir::{IRExpression, IRFunction, IRStatement, Symbol},
-    types::{operate_types, TypeHint},
+    ir::{IRExpression, IRFunction, IRStatement},
+    types::TypeHint,
 };
 
 pub mod context;
@@ -188,7 +188,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
                 return_type,
                 body,
             } => Some((name, params, return_type, body)),
-            _ => None,
+            TopLevel::Import(_) => None,
         })
         .collect();
     let mut ir_functions = Vec::new();
@@ -309,6 +309,7 @@ fn type_hint(
                             "Expected constant index into tuple type; got `{rhs:?}`"
                         ));
                     };
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let idx = *idx as usize;
                     if idx >= types.len() {
                         return Err(format!(
@@ -341,7 +342,19 @@ fn type_hint(
 
             lhs.intersect(&rhs)
         }
-        Expression::BinaryOperation(_, BinaryOperator::Set, _)
+        Expression::BinaryOperation(
+            _,
+            BinaryOperator::Set
+            | BinaryOperator::AddEq
+            | BinaryOperator::DivEq
+            | BinaryOperator::ModEq
+            | BinaryOperator::MulEq
+            | BinaryOperator::SubEq
+            | BinaryOperator::XorEq
+            | BinaryOperator::BitOrEq
+            | BinaryOperator::BitAndEq,
+            _,
+        )
         | Expression::Block { ret: None, .. }
         | Expression::If {
             else_body: None, ..
@@ -409,6 +422,7 @@ fn interpret_syntax(
             Ok(i) => Ok(IRExpression::Int(i)),
             Err(err) => Err(err.to_string()),
         },
+        #[allow(clippy::cast_possible_truncation)]
         (
             Expression::Float(f),
             IRFieldType {
@@ -422,7 +436,9 @@ fn interpret_syntax(
                 ty: InnerFieldType::Object { base, generics },
                 array_depth: 0,
             },
-        ) if &*base == "java/lang/String" => Ok(IRExpression::String(s.clone())),
+        ) if &*base == "java/lang/String" && generics.is_empty() => {
+            Ok(IRExpression::String(s.clone()))
+        }
         (Expression::Block { statements, ret }, ret_ty) => {
             let mut output = Vec::new();
             let mut block_context = function_context.child();
@@ -469,10 +485,10 @@ fn interpret_syntax(
             let val = interpret_syntax(inner, function_context, local_var_table, ty.clone())?;
             Ok(IRExpression::UnaryOperation(ty, *op, Box::new(val)))
         }
-        (Expression::BinaryOperation(lhs, op, rhs), ty) => {
+        (Expression::BinaryOperation(lhs, op, rhs), _ty) => {
             let lhs_ty = type_hint(lhs, function_context, local_var_table)?;
             let rhs_ty = type_hint(rhs, function_context, local_var_table)?;
-            let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
+            // let output_ty = operate_types(&lhs_ty, *op, &rhs_ty)?;
             let lhs = interpret_syntax(
                 lhs,
                 function_context,
@@ -488,13 +504,13 @@ fn interpret_syntax(
                 Box::new(rhs),
             ))
         }
-        (Expression::FunctionCall { function, args }, ty) => {
+        (Expression::FunctionCall { function, args }, _ty) => {
             let mut arg_expr = Vec::new();
             let arg_types = args
                 .iter()
                 .map(|arg| type_hint(arg, function_context, local_var_table))
                 .collect::<Result<Vec<_>, String>>()?;
-            let (mut output, method_info) =
+            let (_output, method_info) =
                 resolve_function(function, &arg_types, function_context, local_var_table)?;
 
             for ((arg, ty), hint) in args.iter().zip(&method_info.params).zip(arg_types) {
@@ -579,7 +595,7 @@ fn interpret_syntax(
             expected_ty,
         ) if expected_ty.is_void() => {
             if let Expression::FunctionCall { function, args } = &**range {
-                if let (Expression::Ident(range_kw), [start, end, step @ ..]) =
+                if let (Expression::Ident(range_kw), [start, end, _step @ ..]) =
                     (&**function, &args[..])
                 {
                     if &**range_kw == "range" {
@@ -671,7 +687,7 @@ fn resolve_function(
                 }
             }
             let obj_ty = type_hint(obj, context, local_var_table)?.as_concrete();
-            let instance = interpret_syntax(obj, context, local_var_table, obj_ty)?;
+            let _instance = interpret_syntax(obj, context, local_var_table, obj_ty)?;
             // TODO: use the object type to help resolve the function
             todo!("Resolve the instance function");
             // Ok((output, id.clone()))

@@ -123,7 +123,7 @@ impl IRExpression {
             Self::BinaryOperation(ty, lhs, BinaryOperator::Ne, rhs) => {
                 Self::BinaryOperation(ty, lhs, BinaryOperator::Eq, rhs)
             }
-            Self::UnaryOperation(ty, UnaryOperator::Not, inner) => *inner,
+            Self::UnaryOperation(_ty, UnaryOperator::Not, inner) => *inner,
             other => Self::UnaryOperation(
                 InnerFieldType::Boolean.into(),
                 UnaryOperator::Not,

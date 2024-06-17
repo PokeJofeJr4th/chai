@@ -24,7 +24,7 @@ impl TypeHint {
             array_depth: 0,
         }) = super_ty
         {
-            if &**base == "java/lang/Object" {
+            if &**base == "java/lang/Object" && generics.is_empty() {
                 return true;
             }
         }
@@ -139,16 +139,16 @@ impl TypeHint {
 
     pub fn as_concrete(self) -> IRFieldType {
         match self {
-            TypeHint::Any => InnerFieldType::Object {
+            Self::Any => InnerFieldType::Object {
                 base: "java/lang/Object".into(),
                 generics: Vec::new(),
             }
             .into(),
-            TypeHint::Void => IRFieldType::VOID,
-            TypeHint::Integral => InnerFieldType::Int.into(),
-            TypeHint::Floating => InnerFieldType::Float.into(),
-            TypeHint::Concrete(c) => c,
-            TypeHint::Tuple(tup) => {
+            Self::Void => IRFieldType::VOID,
+            Self::Integral => InnerFieldType::Int.into(),
+            Self::Floating => InnerFieldType::Float.into(),
+            Self::Concrete(c) => c,
+            Self::Tuple(tup) => {
                 InnerFieldType::Tuple(tup.into_iter().map(Self::as_concrete).collect()).into()
             }
         }
@@ -174,6 +174,7 @@ impl TypeHint {
 }
 
 /// # Errors
+#[allow(clippy::module_name_repetitions)]
 pub fn operate_types(
     lhs: &TypeHint,
     op: BinaryOperator,

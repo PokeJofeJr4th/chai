@@ -44,9 +44,7 @@ fn write_verification_type(ty: &VerificationType, class: &mut Class, bytes: &mut
         VerificationType::UninitializedThis => bytes.push(6),
         VerificationType::Object(obj) => {
             bytes.push(7);
-            bytes.extend(
-                (class.register_constant(Constant::ClassRef(obj.clone())) as u16).to_be_bytes(),
-            );
+            bytes.extend((class.register_constant(Constant::ClassRef(obj.clone()))).to_be_bytes());
         }
         VerificationType::UninitializedVar(i) => {
             bytes.push(8);
@@ -59,9 +57,11 @@ fn write_verification_type(ty: &VerificationType, class: &mut Class, bytes: &mut
 fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, String> {
     let mut body: Vec<Instruction> = Vec::new();
     body.extend(compile_expression(func.body, class)?);
-    match &func.ret {
-        Some(ret) => body.push(Instruction::Return(ret.to_primitive())),
-        None => body.push(Instruction::ReturnVoid),
+    if !matches!(body.last(), Some(Instruction::Goto(_))) {
+        match &func.ret {
+            Some(ret) => body.push(Instruction::Return(ret.to_primitive())),
+            None => body.push(Instruction::ReturnVoid),
+        }
     }
     println!("{body:?}");
     println!("{:?}", func.locals);
@@ -76,8 +76,8 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             .locals
             .iter()
             .map(|loc| loc.to_field_type().get_size())
-            .sum::<usize>() as u16)
-            .to_be_bytes(),
+            .sum::<usize>())
+        .to_be_bytes(),
     );
 
     // code_length
@@ -100,6 +100,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     println!("{offset}");
     let mut code_bytes = Vec::new();
     let mut offset = 0;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
     for instr in body {
         let instr = instr.map(|sym| *symbol_table.get(&sym).unwrap() as i16 - offset);
         println!("{offset} {} {instr:?}", code_bytes.len());
@@ -109,6 +110,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             .map_err(|e| e.to_string())?;
     }
     println!("{offset} {}", code_bytes.len());
+    #[allow(clippy::cast_possible_truncation)]
     code.extend((code_bytes.len() as u32).to_be_bytes());
     code.extend(code_bytes);
     // exception table
@@ -125,6 +127,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         .into_iter()
         .map(|v| VerificationType::from(v.to_field_type()))
         .collect();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     if required_symbols.first() == Some(&0) {
         stack_map.push(255);
         stack_map.extend((offset as u16).to_be_bytes());
@@ -135,6 +138,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         stack_map.extend((0u16).to_be_bytes());
         required_symbols.remove(0);
     }
+    #[allow(clippy::cast_possible_truncation)]
     for (idx, &pc) in required_symbols.iter().enumerate() {
         let offset = if idx == 0 {
             pc - last_pc
@@ -161,10 +165,10 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
         last_pc = pc;
     }
     // write in the stack map
-    code.extend(
-        (class.register_constant(Constant::String("StackMapTable".into())) as u16).to_be_bytes(),
-    );
+    code.extend((class.register_constant(Constant::String("StackMapTable".into()))).to_be_bytes());
+    #[allow(clippy::cast_possible_truncation)]
     code.extend((stack_map.len() as u32 + 2).to_be_bytes());
+    #[allow(clippy::cast_possible_truncation)]
     code.extend((required_symbols.len() as u16).to_be_bytes());
     code.extend(stack_map);
 
@@ -188,6 +192,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
 }
 
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn compile_expression(
     expression: IRExpression,
     class: &mut Class,
@@ -214,21 +219,23 @@ fn compile_expression(
         IRExpression::Long(_) => todo!(),
         IRExpression::Float(f) => Ok(vec![if f == 0.0 {
             Instruction::Push(Const::F0)
-        } else if f == 1.0 {
+        } else if (f - 1.0).abs() < f32::EPSILON {
             Instruction::Push(Const::F1)
-        } else if f == 2.0 {
+        } else if (f - 2.0).abs() < f32::EPSILON {
             Instruction::Push(Const::F2)
         } else {
             Instruction::LoadConst(Constant::Float(f))
         }]),
         IRExpression::Double(_) => todo!(),
         IRExpression::MakeTuple(values) => {
+            #[allow(clippy::cast_possible_wrap)]
             let mut code = compile_expression(IRExpression::Int(values.len() as i32), class)?;
             code.push(Instruction::ReferenceArray(FieldType::Object(
                 "java/lang/Object".into(),
             )));
             for (idx, value) in values.into_iter().enumerate() {
                 code.push(Instruction::Dup);
+                #[allow(clippy::cast_possible_wrap)]
                 code.extend(compile_expression(IRExpression::Int(idx as i32), class)?);
                 code.extend(compile_expression(value, class)?);
                 code.push(Instruction::ArrayStore(PrimitiveType::Reference));
@@ -300,7 +307,7 @@ fn compile_expression(
                     _ => unreachable!(),
                 },
             ));
-            compile_modify(*lhs, code, class)
+            compile_modify(*lhs, code)
         }
         IRExpression::BinaryOperation(
             ty @ IRFieldType {
@@ -334,8 +341,10 @@ fn compile_expression(
                 InnerFieldType::Float => "java/lang/Float",
                 InnerFieldType::Double => "java/lang/Double",
                 InnerFieldType::Char => "java/lang/Character",
-                InnerFieldType::Object { base, generics } => todo!(),
-                InnerFieldType::Tuple(_) => todo!(),
+                InnerFieldType::Object { base, generics } => {
+                    unreachable!("Can't box object {base}<{generics:?}>")
+                }
+                InnerFieldType::Tuple(ty) => unreachable!("Can't box tuple {ty:?}"),
             });
             let mut code = compile_expression(*inner, class)?;
             code.push(Instruction::InvokeStatic(
@@ -549,10 +558,10 @@ fn compile_branch(
 }
 
 /// returns Ok((get, set))
+#[allow(clippy::cast_possible_truncation)]
 fn compile_modify(
     expression: IRExpression,
     modification: Vec<Instruction>,
-    class: &mut Class,
 ) -> Result<Vec<Instruction>, String> {
     match expression {
         IRExpression::LocalVar(ty, idx) => {
@@ -580,6 +589,7 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
         finished_stacks: &mut HashMap<Symbol, Vec<VerificationType>>,
     ) {
         for i in index.. {
+            #[allow(clippy::cast_possible_truncation)]
             match &code[i as usize] {
                 Instruction::Goto(label) => {
                     if !finished_stacks.contains_key(label) {

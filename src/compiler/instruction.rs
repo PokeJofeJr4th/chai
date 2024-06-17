@@ -60,20 +60,12 @@ pub enum Const {
 impl From<Const> for PrimitiveType {
     fn from(value: Const) -> Self {
         match value {
-            Const::D0 => Self::Double,
-            Const::D1 => Self::Double,
-            Const::F0 => Self::Float,
-            Const::F1 => Self::Float,
-            Const::F2 => Self::Float,
-            Const::IM1 => Self::Int,
-            Const::I0 => Self::Int,
-            Const::I1 => Self::Int,
-            Const::I2 => Self::Int,
-            Const::I3 => Self::Int,
-            Const::I4 => Self::Int,
-            Const::I5 => Self::Int,
-            Const::L0 => Self::Long,
-            Const::L1 => Self::Long,
+            Const::D0 | Const::D1 => Self::Double,
+            Const::F0 | Const::F1 | Const::F2 => Self::Float,
+            Const::IM1 | Const::I0 | Const::I1 | Const::I2 | Const::I3 | Const::I4 | Const::I5 => {
+                Self::Int
+            }
+            Const::L0 | Const::L1 => Self::Long,
             Const::Null => Self::Reference,
         }
     }
@@ -187,7 +179,7 @@ impl Instruction {
                 }
             }
             Self::LoadConst(c) => {
-                let i = class.register_constant(c.clone()) as u16;
+                let i = class.register_constant(c.clone());
                 if let Ok(i) = u8::try_from(i) {
                     writer.write_all(&[0x12, i])
                 } else {
@@ -196,7 +188,7 @@ impl Instruction {
                 }
             }
             Self::LoadConst2(c) => {
-                let i = class.register_constant(c.clone()) as u16;
+                let i = class.register_constant(c.clone());
                 writer.write_all(&[0x14])?;
                 writer.write_all(&i.to_be_bytes())
             }
@@ -327,7 +319,7 @@ impl Instruction {
                     class: c.clone(),
                     name: f.clone(),
                     field_type: t.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::PutStatic(c, f, t) => {
@@ -336,7 +328,7 @@ impl Instruction {
                     class: c.clone(),
                     name: f.clone(),
                     field_type: t.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::GetField(c, f, t) => {
@@ -345,7 +337,7 @@ impl Instruction {
                     class: c.clone(),
                     name: f.clone(),
                     field_type: t.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::PutField(c, f, t) => {
@@ -354,7 +346,7 @@ impl Instruction {
                     class: c.clone(),
                     name: f.clone(),
                     field_type: t.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::InvokeVirtual(c, m, d) => {
@@ -363,7 +355,7 @@ impl Instruction {
                     class: c.clone(),
                     name: m.clone(),
                     method_type: d.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::InvokeSpecial(c, m, d) => {
@@ -372,7 +364,7 @@ impl Instruction {
                     class: c.clone(),
                     name: m.clone(),
                     method_type: d.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::InvokeStatic(c, m, d) => {
@@ -381,18 +373,18 @@ impl Instruction {
                     class: c.clone(),
                     name: m.clone(),
                     method_type: d.clone(),
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
-            Self::InvokeInterface(c, m, d, n) => {
+            Self::InvokeInterface(class_name, method_name, method_descriptor, n_args) => {
                 writer.write_all(&[0xB9])?;
                 let i = class.register_constant(Constant::MethodRef {
-                    class: c.clone(),
-                    name: m.clone(),
-                    method_type: d.clone(),
-                }) as u16;
+                    class: class_name.clone(),
+                    name: method_name.clone(),
+                    method_type: method_descriptor.clone(),
+                });
                 writer.write_all(&i.to_be_bytes())?;
-                writer.write_all(&[*n, 0])
+                writer.write_all(&[*n_args, 0])
             }
             Self::InvokeDynamic(i) => {
                 writer.write_all(&[0xBA])?;
@@ -401,7 +393,7 @@ impl Instruction {
             }
             Self::New(i) => {
                 writer.write_all(&[0xBB])?;
-                let i = class.register_constant(Constant::ClassRef(i.clone())) as u16;
+                let i = class.register_constant(Constant::ClassRef(i.clone()));
                 writer.write_all(&i.to_be_bytes())
             }
             Self::ReferenceArray(r) => {
@@ -410,7 +402,7 @@ impl Instruction {
                     Constant::ClassRef(c.clone())
                 } else {
                     Constant::ClassRef(r.repr())
-                }) as u16;
+                });
                 writer.write_all(&i.to_be_bytes())
             }
             Self::NewArray(t) => writer.write_all(&[
@@ -431,17 +423,17 @@ impl Instruction {
             Self::Throw => writer.write_all(&[0xBF]),
             Self::Cast(i) => {
                 writer.write_all(&[0xC0])?;
-                let i = class.register_constant(Constant::ClassRef(i.repr())) as u16;
+                let i = class.register_constant(Constant::ClassRef(i.repr()));
                 writer.write_all(&i.to_be_bytes())
             }
             Self::Instanceof(i) => {
                 writer.write_all(&[0xC1])?;
-                let i = class.register_constant(Constant::ClassRef(i.clone())) as u16;
+                let i = class.register_constant(Constant::ClassRef(i.clone()));
                 writer.write_all(&i.to_be_bytes())
             }
             Self::MultiANewArray(i, d) => {
                 writer.write_all(&[0xC5])?;
-                let i = class.register_constant(Constant::ClassRef(i.repr())) as u16;
+                let i = class.register_constant(Constant::ClassRef(i.repr()));
                 writer.write_all(&i.to_be_bytes())?;
                 writer.write_all(&[*d])
             }
