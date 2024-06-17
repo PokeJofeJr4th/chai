@@ -1,1 +1,3 @@
-[Stack Map Frames](https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.7.4)
+# Chai
+
+Chai is a Rust-inspired language that compiles to JVM bytecode. It aims to provide a concise, easily-understandable syntax that delivers abstractions like tuples

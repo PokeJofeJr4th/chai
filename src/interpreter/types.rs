@@ -216,6 +216,19 @@ pub fn operate_types(
                 .into(),
             ))
         }
+        (
+            _,
+            BinaryOperator::Set
+            | BinaryOperator::AddEq
+            | BinaryOperator::DivEq
+            | BinaryOperator::ModEq
+            | BinaryOperator::MulEq
+            | BinaryOperator::SubEq
+            | BinaryOperator::XorEq
+            | BinaryOperator::BitOrEq
+            | BinaryOperator::BitAndEq,
+            _,
+        ) => Ok(TypeHint::Void),
         (lhs, op, rhs) => Err(format!("Can't make operation `{lhs:?} {op:?} {rhs:?}`")),
     }
 }

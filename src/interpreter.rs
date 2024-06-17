@@ -321,7 +321,9 @@ fn type_hint(
             }
         }
         Expression::BinaryOperation(lhs, BinaryOperator::Add, rhs)
-            if type_hint(lhs, function_context, local_var_table).is_ok_and(|ty| ty.is_string()) =>
+            if type_hint(lhs, function_context, local_var_table).is_ok_and(|ty| ty.is_string())
+                || type_hint(rhs, function_context, local_var_table)
+                    .is_ok_and(|ty| ty.is_string()) =>
         {
             Ok(TypeHint::Concrete(IRFieldType::string()))
         }
@@ -339,7 +341,15 @@ fn type_hint(
 
             lhs.intersect(&rhs)
         }
-        Expression::BinaryOperation(lhs, op, rhs) => todo!(),
+        Expression::BinaryOperation(_, BinaryOperator::Set, _)
+        | Expression::Block { ret: None, .. }
+        | Expression::If {
+            else_body: None, ..
+        }
+        | Expression::Let { .. }
+        | Expression::Loop { .. }
+        | Expression::For { .. } => Ok(TypeHint::Void),
+        Expression::BinaryOperation(lhs, op, rhs) => todo!("{lhs:?} {op:?} {rhs:?}"),
         Expression::FunctionCall { function, args } => {
             let (_, func) = resolve_function(
                 function,
@@ -361,13 +371,6 @@ fn type_hint(
             let else_ty = type_hint(else_body, function_context, local_var_table)?;
             body_ty.intersect(&else_ty)
         }
-        Expression::Block { ret: None, .. }
-        | Expression::If {
-            else_body: None, ..
-        }
-        | Expression::Let { .. }
-        | Expression::Loop { .. }
-        | Expression::For { .. } => Ok(TypeHint::Void),
     }
 }
 

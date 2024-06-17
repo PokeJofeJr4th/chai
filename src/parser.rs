@@ -303,7 +303,7 @@ fn parse_expr(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Express
 }
 
 fn parse_func_call(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Expression, String> {
-    let mut lhs = parse_expr_greedy(src, 1)?;
+    let mut lhs = parse_expr_greedy(src, 0)?;
     loop {
         match src.peek() {
             Some(Token::LParen) => {
@@ -381,6 +381,15 @@ fn parse_item(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Express
                 None
             };
             Ok(Expression::If { condition, body, else_body })
+        },
+        Token::Ident(while_kw) if &*while_kw == "while" => {
+            let condition = Box::new(parse_expr(src)?);
+            let body = Box::new(parse_expr(src)?);
+            Ok(Expression::Loop { body, condition: Some(condition) })
+        },
+        Token::Ident(loop_kw) if &*loop_kw == "loop" => {
+            let body = Box::new(parse_expr(src)?);
+            Ok(Expression::Loop { body, condition: None })
         },
         Token::Ident(try_kw) if &*try_kw == "try" => {
             let body = Box::new(parse_expr(src)?);

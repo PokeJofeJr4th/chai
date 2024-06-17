@@ -315,6 +315,14 @@ fn compile_expression(
             code.push(Instruction::ArrayLoad(ty.to_primitive()));
             Ok(code)
         }
+        IRExpression::BinaryOperation(ty, lhs, BinaryOperator::Set, rhs) => {
+            let mut code = compile_expression(*rhs, class)?;
+            let IRExpression::LocalVar(_, idx) = &*lhs else {
+                return Err(format!("Expected a local variable; got `{lhs:?}`"));
+            };
+            code.push(Instruction::Store(ty.to_primitive(), *idx as u8));
+            Ok(code)
+        }
         IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{lhs:?} {op:?}<{ty:?}> {rhs:?}"),
         IRExpression::UnaryOperation(ty, UnaryOperator::Box, inner) => {
             let class_name: Arc<str> = Arc::from(match ty.ty {
@@ -531,6 +539,7 @@ fn compile_branch(
             }
             Ok(code)
         }
+        IRExpression::Void => Ok(vec![Instruction::Goto(branch_label)]),
         condition => {
             let mut code = compile_expression(condition, class)?;
             code.push(Instruction::IfZcmp(ICmp::Ne, branch_label));
