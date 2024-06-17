@@ -262,7 +262,22 @@ impl Class {
                 class,
                 name,
                 field_type,
-            } => todo!(),
+            } => {
+                let class_idx = u16::try_from(
+                    self.get_constant(&Constant::ClassRef(class.clone()))
+                        .unwrap(),
+                )?;
+                let name_ty_idx = u16::try_from(
+                    self.get_constant(&Constant::NameTypeDescriptor {
+                        name: name.clone(),
+                        type_descriptor: field_type.repr(),
+                    })
+                    .unwrap(),
+                )?;
+                writer.write_all(&[9])?;
+                writer.write_all(&class_idx.to_be_bytes())?;
+                writer.write_all(&name_ty_idx.to_be_bytes())?;
+            }
             Constant::MethodRef {
                 class,
                 name,
