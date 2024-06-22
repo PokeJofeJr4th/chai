@@ -14,6 +14,7 @@ use self::{
 };
 
 pub mod context;
+pub mod header;
 pub mod ir;
 pub mod types;
 

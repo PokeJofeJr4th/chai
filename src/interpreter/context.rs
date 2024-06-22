@@ -6,12 +6,13 @@ use crate::types::IRFieldType;
 
 use super::types::TypeHint;
 
-#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum CtxItem {
     Function(Vec<Arc<FunctionInfo>>),
     Class(ClassInfo),
     Variable(usize, IRFieldType),
     Field(FieldInfo),
+    Module(HashMap<Arc<str>, CtxItem>),
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

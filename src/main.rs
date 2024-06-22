@@ -16,6 +16,10 @@ struct Args {
 }
 
 fn main() {
+    // print the default headers and exit
+    println!("{:?}", interpreter::header::make_headers());
+    return;
+
     let args = Args::parse();
 
     let file = fs::read_to_string(args.filename).unwrap();
