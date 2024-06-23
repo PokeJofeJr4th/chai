@@ -1,7 +1,7 @@
 use jvmrs_lib::access;
 use std::{collections::HashMap, sync::Arc};
 
-use super::context::{CtxItem, FunctionInfo};
+use super::context::{ClassInfo, CtxItem, FunctionInfo};
 use crate::types::{IRFieldType, InnerFieldType};
 
 macro_rules! header {
@@ -24,12 +24,26 @@ macro_rules! header {
         }));
         header!{@mod $module $class $($rest)*}
     };
-    // (@mod $module:ident $_:ident class $name:lit $(: $super:tt) {$($body:tt)*} $($next:tt)*) => {
-    //     let mut class_info =
-    // };
-    (@mod $_:ident $class:ident) => {};
-    (@mod $_:ident $class:ident $($toks:tt)*) => {
+    (@mod $module:ident $class:ident class $name:literal $(: $super:literal)? {$($body:tt)*} $($rest:tt)*) => {
+        let mut super_class = "java/lang/Object";
+        $(super_class = $super;)?
+        let mut class_obj = ClassInfo {
+            name: $name.into(),
+            superclass: super_class.into(),
+            fields: Vec::new(), methods: HashMap::new()
+        };
+        header!{@class class_obj $($body)*}
+        let class_part = $name.split("/").last().unwrap();
+        $module.insert(class_part.into(), CtxItem::Class(class_obj));
+        header!{@mod $module $class $($rest)*}
+    };
+    (@mod $_mod:ident $_class:ident) => {};
+    (@mod $_mod:ident $_class:ident $($toks:tt)*) => {
         todo!("Invalid Module Header Syntax: `{}`", stringify!(Invalid Module Header Syntax: $($toks)*))
+    };
+    (@class $class:ident) => {};
+    (@class $class:ident $($toks:tt)*) => {
+        todo!("Invalid Class Header Syntax: `{}`", stringify!(Invalid Module Header Syntax: $($toks)*))
     };
     ($($toks:tt)*) => {{
         let mut main_module: HashMap<Arc<str>, CtxItem> = HashMap::new();
@@ -47,18 +61,12 @@ macro_rules! ty {
     (int) => {
         InnerFieldType::Int.into()
     };
-    (($first:ident$(.$rest:ident)*)) => {
-        {
-            let mut class_buf = String::from(stringify!($first));
-            $(
-                class_buf.push('/');
-                class_buf.push_str(stringify!($rest));
-            )*
-            InnerFieldType::Object {
-                base: class_buf.into(),
-                generics: Vec::new(),
-            }.into()
+    ($class:literal) => {
+        InnerFieldType::Object {
+            base: $class.into(),
+            generics: Vec::new(),
         }
+        .into()
     };
 }
 
@@ -66,13 +74,24 @@ macro_rules! ty {
 pub fn make_headers() -> HashMap<Arc<str>, CtxItem> {
     header! {
         mod chai {
-            fn print((java.lang.String)) void
+            fn print("java/lang/String") void
             fn print(int) void
         }
         mod java {
             mod lang {
-                class Integer {
+                class "java/lang/Integer" {
 
+                }
+
+                class "java/lang/System" {
+                    static out "java/io/PrintStream"
+                }
+            }
+
+            mod io {
+                class "java/io/PrintStream" {
+                    fn println("java/lang/String") void
+                    fn println(int) void
                 }
             }
         }
