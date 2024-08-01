@@ -22,8 +22,8 @@ pub mod instruction;
 type Instruction = instruction::Instruction<Symbol>;
 
 /// # Errors
-pub fn compile(syn: Vec<IRFunction>) -> Result<Class, String> {
-    let mut class = Class::new("Chai".into(), "java/lang/Object".into());
+pub fn compile(syn: Vec<IRFunction>, class_name: Arc<str>) -> Result<Class, String> {
+    let mut class = Class::new(class_name, "java/lang/Object".into());
 
     for func in syn {
         let func = compile_function(&mut class, func)?;
@@ -71,12 +71,13 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     // max stack
     code.extend(u16::MAX.to_be_bytes());
     // max locals
+    #[allow(clippy::cast_possible_truncation)]
     code.extend(
         (func
             .locals
             .iter()
             .map(|loc| loc.to_field_type().get_size())
-            .sum::<usize>()
+            .sum::<usize>() as u16
             + 1)
         .to_be_bytes(),
     );
@@ -332,6 +333,33 @@ fn compile_expression(
             Ok(code)
         }
         IRExpression::BinaryOperation(ty, lhs, op, rhs) => todo!("{lhs:?} {op:?}<{ty:?}> {rhs:?}"),
+        IRExpression::UnaryOperation(ty, UnaryOperator::Unbox, inner) => {
+            let InnerFieldType::Object { base, generics: _ } = ty.ty else {
+                panic!("Can't unbox `{ty:?}`")
+            };
+            let primitive = match &*base {
+                "java/lang/Boolean" => InnerFieldType::Boolean,
+                "java/lang/Byte" => InnerFieldType::Byte,
+                "java/lang/Short" => InnerFieldType::Short,
+                "java/lang/Integer" => InnerFieldType::Int,
+                "java/lang/Long" => InnerFieldType::Long,
+                "java/lang/Float" => InnerFieldType::Float,
+                "java/lang/Double" => InnerFieldType::Double,
+                "java/lang/Character" => InnerFieldType::Char,
+                other => panic!("Can't unbox `{other}`"),
+            };
+            let mut code = compile_expression(*inner, class)?;
+            code.push(Instruction::InvokeVirtual(
+                base,
+                format!("{primitive:?}Value").into(),
+                MethodDescriptor {
+                    parameter_size: 0,
+                    parameters: Vec::new(),
+                    return_type: Some(primitive.to_field_type()),
+                },
+            ));
+            Ok(code)
+        }
         IRExpression::UnaryOperation(ty, UnaryOperator::Box, inner) => {
             let class_name: Arc<str> = Arc::from(match ty.ty {
                 InnerFieldType::Boolean => "java/lang/Boolean",
@@ -350,7 +378,7 @@ fn compile_expression(
             let mut code = compile_expression(*inner, class)?;
             code.push(Instruction::InvokeStatic(
                 class_name.clone(),
-                Arc::from("value_of"),
+                Arc::from("valueOf"),
                 MethodDescriptor {
                     parameter_size: ty.get_size(),
                     parameters: vec![ty.to_field_type()],

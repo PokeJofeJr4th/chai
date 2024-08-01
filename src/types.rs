@@ -70,6 +70,21 @@ impl InnerFieldType {
             Self::Tuple(_) => "java/lang/Object",
         }
     }
+
+    pub fn to_field_type(&self) -> FieldType {
+        match self {
+            Self::Boolean => FieldType::Boolean,
+            Self::Byte => FieldType::Byte,
+            Self::Char => FieldType::Char,
+            Self::Double => FieldType::Double,
+            Self::Float => FieldType::Float,
+            Self::Int => FieldType::Int,
+            Self::Long => FieldType::Long,
+            Self::Short => FieldType::Short,
+            Self::Object { base, generics } => FieldType::Object(base.clone()),
+            Self::Tuple(tys) => FieldType::Array(Box::new(todo!())),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Hash, Eq)]

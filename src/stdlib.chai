@@ -5,7 +5,6 @@ class chai {
 
     class option {
         fn some(java.lang.Object object) -> java.lang.Optional;
-        fn some(float value) -> java.lang.Optional;
         fn none() -> java.lang.Optional;
     }
 }
@@ -17,13 +16,17 @@ mod java {
         }
 
         class Integer {
-            fn parseInt(java.lang.String value) -> java.lang.Integer;
+            fn parseInt(java.lang.String value) -> int;
+            fn valueOf(int value) -> java.lang.Integer;
         }
 
         class Object {
             
         }
 
+    }
+
+    mod util {
         class Optional {
             fn of(java.lang.Object object) -> java.lang.Optional;
             fn empty() -> java.lang.Optional;
@@ -31,4 +34,5 @@ mod java {
     }
 }
 
-import java.lang.{String, Integer, Object, Optional};
+import java.lang.{String, Integer, Object};
+import chai.{print, option, range};

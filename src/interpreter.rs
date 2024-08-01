@@ -89,20 +89,26 @@ pub fn resolve_imports(
             let ctx_item = import_from_context(parents, context)?.into_owned();
             match ctx_item {
                 CtxItem::Class(cls) => {
-                    for inner_class in &cls.inner_classes {
-                        let mut inner = inner_class.clone();
-                        let inner_name: Arc<str> = (parents.join("/") + &*inner_class.name).into();
-                        inner.name = inner_name.clone();
-                        context.insert(inner_name, CtxItem::Class(inner.clone()));
+                    for mut inner in cls.inner_classes {
+                        inner.name = (parents.join("/") + &*inner.name).into();
+                        context.insert(inner.name.clone(), CtxItem::Class(inner));
                     }
-                    for func in &cls.methods {
-                        context.insert(func.0.clone(), CtxItem::Function(func.1.clone()));
+                    for func in cls.methods {
+                        context.insert(func.0, CtxItem::Function(func.1));
                     }
                 }
-                CtxItem::Field(_field) => {}
-                CtxItem::Function(_func) => {}
-                CtxItem::Module(_module) => {}
-                CtxItem::Variable(_v, _c) => {}
+                CtxItem::Field(_field) => {
+                    todo!()
+                }
+                CtxItem::Function(_func) => {
+                    todo!()
+                }
+                CtxItem::Module(_module) => {
+                    todo!()
+                }
+                CtxItem::Variable(_v, _c) => {
+                    todo!()
+                }
             }
         } else {
             // import this exact item
@@ -139,7 +145,7 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
             body: _,
         } => {
             let function_info = FunctionInfo {
-                class: "Chai".into(),
+                class: parents.join("/").into(),
                 access: access!(private static),
                 name: name.clone(),
                 params: params
@@ -211,58 +217,90 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
 pub fn interpret(
     syn: Vec<TopLevel>,
     global_context: &mut Context,
-) -> Result<Vec<IRFunction>, String> {
+) -> Result<HashMap<Arc<str>, Vec<IRFunction>>, String> {
     for syn in &syn {
         apply_top_level(&[], global_context, syn)?;
     }
     println!("{global_context:#?}");
-    let functions: Vec<_> = syn
-        .into_iter()
-        .filter_map(|top_level| match top_level {
+    let mut class_table = HashMap::new();
+    for syn in syn {
+        let TopLevel::Class(name, syn) = syn else {
+            continue;
+        };
+        interpret_class(&[], &name, syn, global_context, &mut class_table)?;
+    }
+    Ok(class_table)
+}
+
+fn interpret_class(
+    parents: &[&str],
+    class_name: &Arc<str>,
+    syn: Vec<TopLevel>,
+    context: &Context,
+    class_table: &mut HashMap<Arc<str>, Vec<IRFunction>>,
+) -> Result<(), String> {
+    let mut context = context.child();
+    for syn in &syn {
+        apply_top_level(parents, &mut context, syn)?;
+    }
+    let mut ir_functions = Vec::new();
+    for x in syn {
+        match x {
             TopLevel::Function {
                 name,
                 params,
                 return_type,
                 body,
-            } => Some((name, params, return_type, body)),
-            TopLevel::Import(_) | TopLevel::Class(..) => None,
-        })
-        .collect();
-    let mut ir_functions = Vec::new();
-    for (name, params, return_type, body) in &functions {
-        let mut function_context = global_context.child();
-        let mut local_var_table = Vec::new();
-        let mut param_types = Vec::new();
-        for (ty, param) in params {
-            let ty = resolve_type(ty, &function_context)?;
-            param_types.push(ty.clone());
-            function_context.insert(
-                param.clone(),
-                CtxItem::Variable(local_var_table.len(), ty.clone()),
-            );
-            local_var_table.push((ty, param.clone()));
-        }
+            } => {
+                let mut function_context = context.child();
+                let mut local_var_table = Vec::new();
+                let mut param_types = Vec::new();
+                for (ty, param) in params {
+                    let ty = resolve_type(&ty, &function_context)?;
+                    param_types.push(ty.clone());
+                    function_context.insert(
+                        param.clone(),
+                        CtxItem::Variable(local_var_table.len(), ty.clone()),
+                    );
+                    local_var_table.push((ty, param.clone()));
+                }
 
-        let body = interpret_syntax(
-            body,
-            &mut function_context,
-            &mut local_var_table,
-            return_type.clone().unwrap_or_else(|| IRFieldType {
-                ty: InnerFieldType::Tuple(Vec::new()),
-                array_depth: 0,
-            }),
-        )?;
-        ir_functions.push(IRFunction {
-            name: name.clone(),
-            params: param_types,
-            ret: return_type.as_ref().map_or(Ok(None), |rt| {
-                resolve_type(rt, &function_context).map(Option::Some)
-            })?,
-            locals: local_var_table.into_iter().map(|(ty, _)| ty).collect(),
-            body,
-        });
+                let body = interpret_syntax(
+                    &body,
+                    &mut function_context,
+                    &mut local_var_table,
+                    return_type.clone().unwrap_or_else(|| IRFieldType {
+                        ty: InnerFieldType::Tuple(Vec::new()),
+                        array_depth: 0,
+                    }),
+                )?;
+                ir_functions.push(IRFunction {
+                    name: name.clone(),
+                    params: param_types,
+                    ret: return_type.as_ref().map_or(Ok(None), |rt| {
+                        resolve_type(rt, &function_context).map(Option::Some)
+                    })?,
+                    locals: local_var_table.into_iter().map(|(ty, _)| ty).collect(),
+                    body,
+                });
+            }
+            TopLevel::Class(inner_class_name, class_body) => {
+                interpret_class(
+                    &[parents, &[class_name]].concat(),
+                    &inner_class_name,
+                    class_body,
+                    &context,
+                    class_table,
+                )?;
+            }
+            TopLevel::Import(_) => {}
+        }
     }
-    Ok(ir_functions)
+    class_table.insert(
+        (parents.join("/") + if parents.is_empty() { "" } else { "/" } + &*class_name).into(),
+        ir_functions,
+    );
+    Ok(())
 }
 
 fn resolve_type(ty: &IRFieldType, function_context: &Context) -> Result<IRFieldType, String> {
@@ -553,6 +591,12 @@ fn interpret_syntax(
                     IRExpression::UnaryOperation(
                         hint.as_concrete(),
                         UnaryOperator::Box,
+                        Box::new(arg),
+                    )
+                } else if !hint.is_primitive() && ty.is_primitive() {
+                    IRExpression::UnaryOperation(
+                        hint.as_concrete(),
+                        UnaryOperator::Unbox,
                         Box::new(arg),
                     )
                 } else {
