@@ -1,0 +1,34 @@
+class chai {
+    fn print(java.lang.String value);
+    fn print(int value);
+    fn range(int a, int b) -> java.lang.Object;
+
+    class option {
+        fn some(java.lang.Object object) -> java.lang.Optional;
+        fn some(float value) -> java.lang.Optional;
+        fn none() -> java.lang.Optional;
+    }
+}
+
+mod java {
+    mod lang {
+        class String {
+
+        }
+
+        class Integer {
+            fn parseInt(java.lang.String value) -> java.lang.Integer;
+        }
+
+        class Object {
+            
+        }
+
+        class Optional {
+            fn of(java.lang.Object object) -> java.lang.Optional;
+            fn empty() -> java.lang.Optional;
+        }
+    }
+}
+
+import java.lang.{String, Integer, Object, Optional};

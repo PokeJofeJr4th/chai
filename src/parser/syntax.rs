@@ -36,6 +36,7 @@ pub enum TopLevel {
         return_type: Option<IRFieldType>,
         body: Expression,
     },
+    Class(Arc<str>, Vec<TopLevel>),
 }
 
 #[derive(Debug)]

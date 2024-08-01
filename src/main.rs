@@ -3,6 +3,7 @@
 use std::{fs, path::PathBuf};
 
 use clap::Parser;
+use interpreter::context::Context;
 
 pub mod compiler;
 pub mod interpreter;
@@ -16,13 +17,9 @@ struct Args {
 }
 
 fn main() {
-    // print the default headers and exit
-    println!("{:?}", interpreter::header::make_headers());
-    return;
-
     let args = Args::parse();
 
-    let file = fs::read_to_string(args.filename).unwrap();
+    let file = fs::read_to_string(format!("{}.chai", args.filename.display())).unwrap();
 
     let toks = lexer::tokenize(&file).unwrap();
 
@@ -32,7 +29,13 @@ fn main() {
 
     println!("{syn:#?}");
 
-    let interpreted = interpreter::interpret(syn).unwrap();
+    let mut std_context = load_standard_lib()
+        .map_err(|err| format!("While loading standard library: {err}"))
+        .unwrap();
+
+    println!("{std_context:#?}");
+
+    let interpreted = interpreter::interpret(syn, &mut std_context).unwrap();
 
     println!("{interpreted:#?}");
 
@@ -42,5 +45,11 @@ fn main() {
 
     let mut contents = Vec::new();
     compiled.write(&mut contents).unwrap();
-    fs::write("Chai.class", contents).unwrap();
+    fs::write(format!("{}.class", args.filename.display()), contents).unwrap();
+}
+
+fn load_standard_lib() -> Result<Context, String> {
+    interpreter::get_global_context(&parser::parse(lexer::tokenize(include_str!(
+        "stdlib.chai"
+    ))?)?)
 }

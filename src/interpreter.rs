@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use jvmrs_lib::access;
 
@@ -14,9 +14,67 @@ use self::{
 };
 
 pub mod context;
-pub mod header;
 pub mod ir;
 pub mod types;
+
+fn import_from_context<'a>(
+    path: &[&str],
+    context: &'a Context,
+) -> Result<Cow<'a, CtxItem>, String> {
+    if path.is_empty() {
+        return Err(String::from("Invalid empty import path"));
+    }
+    let Some(ctx_item) = context.get(path[0]) else {
+        return Err(format!("Failed to resolve import `{}`", path[0]));
+    };
+    if path.len() == 1 {
+        return Ok(Cow::Borrowed(ctx_item));
+    }
+    import_from_item(&path[1..], ctx_item)
+}
+
+fn import_from_item<'a>(path: &[&str], item: &'a CtxItem) -> Result<Cow<'a, CtxItem>, String> {
+    match item {
+        CtxItem::Class(cls) => import_from_class(path, cls),
+        CtxItem::Module(module) => {
+            let Some(ctx_item) = module.get(path[0]) else {
+                return Err(format!("Failed to resolve import `{}`", path.join(".")));
+            };
+            if path.len() == 1 {
+                Ok(Cow::Borrowed(ctx_item))
+            } else {
+                import_from_item(&path[1..], ctx_item)
+            }
+        }
+        CtxItem::Function(_) => Err(format!("Can't resolve {} from a function", path.join("."))),
+        CtxItem::Variable(_, _) => Err(format!("Can't resolve {} from a variable", path.join("."))),
+        CtxItem::Field(_) => Err(format!("Can't resolve {} from a field", path.join("."))),
+    }
+}
+
+fn import_from_class<'a>(path: &[&str], cls: &'a ClassInfo) -> Result<Cow<'a, CtxItem>, String> {
+    if path.is_empty() {
+        return Ok(Cow::Owned(CtxItem::Class(cls.clone())));
+    }
+    if let Some(method_info) = cls.methods.get(path[0]) {
+        return Ok(Cow::Owned(CtxItem::Function(method_info.clone())));
+    }
+
+    for field in &cls.fields {}
+
+    for class in &cls.inner_classes {
+        if class.name.split('/').last() != Some(path[0]) {
+            continue;
+        }
+        return import_from_class(&path[1..], class);
+    }
+
+    Err(format!(
+        "Failed to resolve `{}` from class `{}`",
+        path.join("."),
+        cls.name
+    ))
+}
 
 /// # Errors
 #[allow(clippy::too_many_lines)]
@@ -26,122 +84,31 @@ pub fn resolve_imports(
     context: &mut Context,
 ) -> Result<(), String> {
     if tree.children.is_empty() {
-        // import this exact item
-        match (parents, &*tree.current) {
-            (["chai"], "print") => {
-                context.insert(
-                    "print".into(),
-                    CtxItem::Function(vec![
-                        Arc::new(FunctionInfo {
-                            class: "<chai>".into(),
-                            access: access!(public static),
-                            name: "print".into(),
-                            params: vec![IRFieldType::string()],
-                            ret: IRFieldType::VOID,
-                        }),
-                        Arc::new(FunctionInfo {
-                            class: "<chai>".into(),
-                            access: access!(public static),
-                            name: "print".into(),
-                            params: vec![InnerFieldType::Int.into()],
-                            ret: IRFieldType::VOID,
-                        }),
-                    ]),
-                );
+        if &*tree.current == "*" {
+            // import everything
+            let ctx_item = import_from_context(parents, context)?.into_owned();
+            match ctx_item {
+                CtxItem::Class(cls) => {
+                    for inner_class in &cls.inner_classes {
+                        let mut inner = inner_class.clone();
+                        let inner_name: Arc<str> = (parents.join("/") + &*inner_class.name).into();
+                        inner.name = inner_name.clone();
+                        context.insert(inner_name, CtxItem::Class(inner.clone()));
+                    }
+                    for func in &cls.methods {
+                        context.insert(func.0.clone(), CtxItem::Function(func.1.clone()));
+                    }
+                }
+                CtxItem::Field(field) => {}
+                CtxItem::Function(func) => {}
+                CtxItem::Module(module) => {}
+                CtxItem::Variable(v, c) => {}
             }
-            (["chai"], "range") => {
-                context.insert(
-                    "range".into(),
-                    CtxItem::Function(vec![Arc::new(FunctionInfo {
-                        class: "<chai>".into(),
-                        access: access!(public static),
-                        name: "range".into(),
-                        params: vec![InnerFieldType::Int.into(), InnerFieldType::Int.into()],
-                        ret: InnerFieldType::Int.into(),
-                    })]),
-                );
-            }
-            (["chai", "option"], "*") => {
-                context.insert(
-                    "none".into(),
-                    CtxItem::Function(vec![Arc::new(FunctionInfo {
-                        class: "<chai>".into(),
-                        access: access!(public static),
-                        name: "none".into(),
-                        params: Vec::new(),
-                        ret: InnerFieldType::Object {
-                            base: "java/util/Optional".into(),
-                            generics: Vec::new(),
-                        }
-                        .into(),
-                    })]),
-                );
-                context.insert(
-                    "some".into(),
-                    CtxItem::Function(vec![Arc::new(FunctionInfo {
-                        class: "<chai>".into(),
-                        access: access!(public static),
-                        name: "some".into(),
-                        params: vec![InnerFieldType::Object {
-                            base: "java/lang/Object".into(),
-                            generics: Vec::new(),
-                        }
-                        .into()],
-                        ret: InnerFieldType::Object {
-                            base: "java/util/Optional".into(),
-                            generics: Vec::new(),
-                        }
-                        .into(),
-                    })]),
-                );
-            }
-            (["java", "lang"], "Integer") => {
-                let mut methods = HashMap::new();
-                methods.insert(
-                    "parseInt".into(),
-                    vec![Arc::new(FunctionInfo {
-                        name: "parseInt".into(),
-                        class: "java/lang/Integer".into(),
-                        access: access!(public static),
-                        params: vec![IRFieldType::string()],
-                        ret: InnerFieldType::Int.into(),
-                    })],
-                );
-                context.insert(
-                    "Integer".into(),
-                    CtxItem::Class(ClassInfo {
-                        name: "java/lang/Integer".into(),
-                        superclass: "java/lang/Object".into(),
-                        fields: Vec::new(),
-                        methods,
-                    }),
-                );
-            }
-            (["java", "lang"], "Optional") => {
-                context.insert(
-                    "Optional".into(),
-                    CtxItem::Class(ClassInfo {
-                        name: "java/util/Optional".into(),
-                        superclass: "java/lang/Object".into(),
-                        fields: Vec::new(),
-                        methods: HashMap::new(),
-                    }),
-                );
-            }
-            (["java", "lang"], "String") => {
-                context.insert(
-                    "String".into(),
-                    CtxItem::Class(ClassInfo {
-                        name: "java/lang/String".into(),
-                        superclass: "java/lang/Object".into(),
-                        fields: Vec::new(),
-                        methods: HashMap::new(),
-                    }),
-                );
-            }
-            (parents, current) => {
-                return Err(format!("Can't import {}.{current}", parents.join(".")));
-            }
+        } else {
+            // import this exact item
+            let ctx_item =
+                import_from_context(&[parents, &[&*tree.current]].concat(), context)?.into_owned();
+            context.insert(tree.current.clone(), ctx_item);
         }
     }
     for child in &tree.children {
@@ -150,36 +117,103 @@ pub fn resolve_imports(
     Ok(())
 }
 
-/// # Errors
-pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
+pub fn get_global_context(syn: &[TopLevel]) -> Result<Context, String> {
     let mut global_context = Context::new();
-    for syn in &syn {
-        match syn {
-            TopLevel::Import(import_tree) => {
-                resolve_imports(&[], import_tree, &mut global_context)?;
-            }
+    for syn in syn {
+        apply_top_level(&[], &mut global_context, syn)?;
+    }
+    Ok(global_context)
+}
+
+fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> Result<(), String> {
+    match syn {
+        TopLevel::Import(import_tree) => {
+            resolve_imports(parents, import_tree, context)?;
+        }
+        TopLevel::Function {
+            name,
+            params,
+            return_type,
+            body: _,
+        } => {
+            let function_info = FunctionInfo {
+                class: "Chai".into(),
+                access: access!(private static),
+                name: name.clone(),
+                params: params
+                    .iter()
+                    .map(|(ty, _)| resolve_type(ty, context))
+                    .collect::<Result<_, _>>()?,
+                ret: return_type
+                    .as_ref()
+                    .map_or_else(|| IRFieldType::VOID, Clone::clone),
+            };
+            context.insert(
+                name.clone(),
+                CtxItem::Function(vec![Arc::new(function_info)]),
+            );
+        }
+        TopLevel::Class(class_name, items) => {
+            let class_name: Arc<str> = Arc::from(parents.join("/") + &**class_name);
+            context.insert(
+                class_name.clone(),
+                CtxItem::Class(class_info(parents, &class_name, items)),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> ClassInfo {
+    let mut info = ClassInfo {
+        name: Arc::from(
+            parents.join("/") + if parents.is_empty() { "" } else { "/" } + &**class_name,
+        ),
+        superclass: "java/lang/Object".into(),
+        fields: Vec::new(),
+        methods: HashMap::new(),
+        inner_classes: Vec::new(),
+    };
+    for item in items {
+        match item {
             TopLevel::Function {
                 name,
                 params,
                 return_type,
                 body: _,
-            } => {
-                let function_info = FunctionInfo {
-                    class: "Chai".into(),
-                    access: access!(private static),
+            } => info
+                .methods
+                .entry(name.clone())
+                .or_default()
+                .push(Arc::new(FunctionInfo {
+                    class: info.name.clone(),
+                    access: access!(public static),
                     name: name.clone(),
-                    params: params.iter().map(|(ty, _)| ty.clone()).collect(),
-                    ret: return_type
-                        .as_ref()
-                        .map_or_else(|| IRFieldType::VOID, Clone::clone),
-                };
-                global_context.insert(
-                    name.clone(),
-                    CtxItem::Function(vec![Arc::new(function_info)]),
-                );
+                    params: params.iter().map(|(t, _)| t.clone()).collect(),
+                    ret: return_type.clone().unwrap_or(IRFieldType::VOID),
+                })),
+            TopLevel::Import(_) => {}
+            TopLevel::Class(name, items) => {
+                info.inner_classes.push(class_info(
+                    &[parents, &[&class_name]].concat(),
+                    name,
+                    items,
+                ));
             }
         }
     }
+    info
+}
+
+/// # Errors
+pub fn interpret(
+    syn: Vec<TopLevel>,
+    global_context: &mut Context,
+) -> Result<Vec<IRFunction>, String> {
+    for syn in &syn {
+        apply_top_level(&[], global_context, syn)?;
+    }
+    println!("{global_context:#?}");
     let functions: Vec<_> = syn
         .into_iter()
         .filter_map(|top_level| match top_level {
@@ -189,7 +223,7 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
                 return_type,
                 body,
             } => Some((name, params, return_type, body)),
-            TopLevel::Import(_) => None,
+            TopLevel::Import(_) | TopLevel::Class(..) => None,
         })
         .collect();
     let mut ir_functions = Vec::new();
@@ -211,13 +245,10 @@ pub fn interpret(syn: Vec<TopLevel>) -> Result<Vec<IRFunction>, String> {
             body,
             &mut function_context,
             &mut local_var_table,
-            return_type
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| IRFieldType {
-                    ty: InnerFieldType::Tuple(Vec::new()),
-                    array_depth: 0,
-                }),
+            return_type.clone().unwrap_or_else(|| IRFieldType {
+                ty: InnerFieldType::Tuple(Vec::new()),
+                array_depth: 0,
+            }),
         )?;
         ir_functions.push(IRFunction {
             name: name.clone(),

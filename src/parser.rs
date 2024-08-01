@@ -58,7 +58,33 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
             } "`;`")
         },
         Token::Ident(id) if &*id == "fn" => parse_function(src),
-    } "`import` or `fn`")
+        Token::Ident(id) if &*id == "class" => {
+            let_token!(src => Token::Ident(class_name), "class name");
+            let_token!(src => Token::LCurly, "`{`");
+            let mut syntax = Vec::new();
+            loop {
+                match src.peek() {
+                    Some(Token::RCurly) => break,
+                    _ => syntax.push(inner_parse(src)?)
+                }
+            }
+            let_token!(src => Token::RCurly, "`}`");
+            Ok(TopLevel::Class(class_name, syntax))
+        },
+        Token::Ident(id) if &*id == "mod" => {
+            let_token!(src => Token::Ident(mod_name), "module name");
+            let_token!(src => Token::LCurly, "`{`");
+            let mut items = Vec::new();
+            loop {
+                match src.peek() {
+                    Some(Token::RCurly) => break,
+                    _ => items.push(inner_parse(src)?)
+                }
+            }
+            let_token!(src => Token::RCurly, "`}`");
+            Ok(TopLevel::Class(mod_name, items))
+        }
+    } "`import`, `class`, or `fn`")
 }
 
 fn parse_import_tree(
@@ -113,7 +139,9 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
     let_token!(src => Token::LParen, "`(`");
 
     let mut params = Vec::new();
-    if src.peek() != Some(&Token::RParen) {
+    if src.peek() == Some(&Token::RParen) {
+        src.next();
+    } else {
         loop {
             let ty = parse_type(src)?;
             let_token!(src => Token::Ident(field_name), "parameter name identifier");
@@ -133,8 +161,15 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
     } else {
         None
     };
-
-    let body = parse_item(src)?;
+    let body = if src.peek() == Some(&Token::Semicolon) {
+        src.next();
+        Expression::Block {
+            statements: Vec::new(),
+            ret: None,
+        }
+    } else {
+        parse_item(src)?
+    };
 
     Ok(TopLevel::Function {
         name,
@@ -157,13 +192,11 @@ fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRField
         Token::Ident(id) => {
             let mut base = String::new();
             base.push_str(&id);
-            loop {
-                match src.peek() {
-                    Some(Token::Ident(id)) => base.push_str(id),
-                    Some(Token::Dot) => base.push('.'),
-                    _ => break,
-                }
+            while src.peek() == Some(&Token::Dot) {
+                base.push('/');
                 src.next();
+                let_token!(src => Token::Ident(segment), "class name segment");
+                base.push_str(&segment);
             }
             let mut generics = Vec::new();
             if src.next_if_eq(&Token::LCaret).is_some() && src.next_if_eq(&Token::RCaret).is_none(){

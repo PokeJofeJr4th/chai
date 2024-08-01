@@ -21,6 +21,7 @@ pub struct ClassInfo {
     pub superclass: Arc<str>,
     pub fields: Vec<FieldInfo>,
     pub methods: HashMap<Arc<str>, Vec<Arc<FunctionInfo>>>,
+    pub inner_classes: Vec<ClassInfo>,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
@@ -46,6 +47,7 @@ impl Hash for ClassInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct Context {
     map: HashMap<Arc<str>, CtxItem>,
 }
