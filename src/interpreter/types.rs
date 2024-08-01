@@ -43,6 +43,30 @@ impl TypeHint {
         if self == &Self::Floating {
             return super_ty.is_floating();
         }
+        if let (
+            Self::Concrete(IRFieldType { ty, array_depth: 0 }),
+            Self::Concrete(IRFieldType {
+                ty: InnerFieldType::Object { base, generics: _ },
+                array_depth: 0,
+            }),
+        ) = (self, super_ty)
+        {
+            if ty.class_name() == &**base {
+                return true;
+            }
+        }
+        if let (
+            Self::Concrete(IRFieldType { ty, array_depth: 0 }),
+            Self::Concrete(IRFieldType {
+                ty: InnerFieldType::Object { base, generics: _ },
+                array_depth: 0,
+            }),
+        ) = (super_ty, self)
+        {
+            if ty.class_name() == &**base {
+                return true;
+            }
+        }
         if let (Self::Tuple(this), Self::Tuple(other)) = (self, super_ty) {
             return this.len() == other.len()
                 && this

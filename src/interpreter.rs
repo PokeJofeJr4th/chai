@@ -60,7 +60,7 @@ fn import_from_class<'a>(path: &[&str], cls: &'a ClassInfo) -> Result<Cow<'a, Ct
         return Ok(Cow::Owned(CtxItem::Function(method_info.clone())));
     }
 
-    for field in &cls.fields {}
+    for _field in &cls.fields {}
 
     for class in &cls.inner_classes {
         if class.name.split('/').last() != Some(path[0]) {
@@ -99,10 +99,10 @@ pub fn resolve_imports(
                         context.insert(func.0.clone(), CtxItem::Function(func.1.clone()));
                     }
                 }
-                CtxItem::Field(field) => {}
-                CtxItem::Function(func) => {}
-                CtxItem::Module(module) => {}
-                CtxItem::Variable(v, c) => {}
+                CtxItem::Field(_field) => {}
+                CtxItem::Function(_func) => {}
+                CtxItem::Module(_module) => {}
+                CtxItem::Variable(_v, _c) => {}
             }
         } else {
             // import this exact item
@@ -117,6 +117,8 @@ pub fn resolve_imports(
     Ok(())
 }
 
+/// # Errors
+/// uhh...
 pub fn get_global_context(syn: &[TopLevel]) -> Result<Context, String> {
     let mut global_context = Context::new();
     for syn in syn {
@@ -195,7 +197,7 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
             TopLevel::Import(_) => {}
             TopLevel::Class(name, items) => {
                 info.inner_classes.push(class_info(
-                    &[parents, &[&class_name]].concat(),
+                    &[parents, &[class_name]].concat(),
                     name,
                     items,
                 ));

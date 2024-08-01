@@ -76,7 +76,8 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
             .locals
             .iter()
             .map(|loc| loc.to_field_type().get_size())
-            .sum::<usize>())
+            .sum::<usize>()
+            + 1)
         .to_be_bytes(),
     );
 
@@ -411,42 +412,44 @@ fn compile_expression(
             code.push(Instruction::Store(ty.to_primitive(), idx as u8));
             Ok(code)
         }
-        IRExpression::Invoke(func, args) if &*func.class == "<chai>" => match (&*func, &args[..]) {
-            (FunctionInfo { name, .. }, []) if &**name == "none" => {
-                Ok(vec![Instruction::InvokeStatic(
-                    "java/util/Optional".into(),
-                    "empty".into(),
-                    method!(() -> Object("java/util/Optional".into())),
-                )])
+        IRExpression::Invoke(func, args) if func.class.split('/').next() == Some("chai") => {
+            match (&*func, &args[..]) {
+                (FunctionInfo { name, .. }, []) if &**name == "none" => {
+                    Ok(vec![Instruction::InvokeStatic(
+                        "java/util/Optional".into(),
+                        "empty".into(),
+                        method!(() -> Object("java/util/Optional".into())),
+                    )])
+                }
+                (FunctionInfo { name, .. }, [one]) if &**name == "some" => {
+                    let mut code = compile_expression(one.clone(), class)?;
+                    code.push(Instruction::InvokeStatic("java/util/Optional".into(), "of".into(), method!(((Object("java/lang/Object".into()))) -> Object("java/util/Optional".into()))));
+                    Ok(code)
+                }
+                (FunctionInfo { name, params, .. }, [one]) if &**name == "print" => {
+                    let mut code = vec![Instruction::GetStatic(
+                        "java/lang/System".into(),
+                        "out".into(),
+                        FieldType::Object("java/io/PrintStream".into()),
+                    )];
+                    code.extend(compile_expression(one.clone(), class)?);
+                    let print_ty = params[0].to_field_type();
+                    code.push(Instruction::InvokeVirtual(
+                        "java/io/PrintStream".into(),
+                        "println".into(),
+                        {
+                            MethodDescriptor {
+                                parameter_size: print_ty.get_size(),
+                                parameters: vec![print_ty],
+                                return_type: None,
+                            }
+                        },
+                    ));
+                    Ok(code)
+                }
+                (func, args) => todo!("{func:?} {args:?}"),
             }
-            (FunctionInfo { name, .. }, [one]) if &**name == "some" => {
-                let mut code = compile_expression(one.clone(), class)?;
-                code.push(Instruction::InvokeStatic("java/util/Optional".into(), "of".into(), method!(((Object("java/lang/Object".into()))) -> Object("java/util/Optional".into()))));
-                Ok(code)
-            }
-            (FunctionInfo { name, params, .. }, [one]) if &**name == "print" => {
-                let mut code = vec![Instruction::GetStatic(
-                    "java/lang/System".into(),
-                    "out".into(),
-                    FieldType::Object("java/io/PrintStream".into()),
-                )];
-                code.extend(compile_expression(one.clone(), class)?);
-                let print_ty = params[0].to_field_type();
-                code.push(Instruction::InvokeVirtual(
-                    "java/io/PrintStream".into(),
-                    "println".into(),
-                    {
-                        MethodDescriptor {
-                            parameter_size: print_ty.get_size(),
-                            parameters: vec![print_ty],
-                            return_type: None,
-                        }
-                    },
-                ));
-                Ok(code)
-            }
-            (func, args) => todo!("{func:?} {args:?}"),
-        },
+        }
         IRExpression::Invoke(func, args) => {
             let func_args: Vec<_> = func.params.iter().map(IRFieldType::to_field_type).collect();
             let method_type = MethodDescriptor {

@@ -578,7 +578,7 @@ pub enum VerificationType {
     Double,
     Null,
     UninitializedThis,
-    /// ClassInfo constant pointer
+    /// Class info constant pointer
     Object(Arc<str>),
     /// Uninitialized variable; offset is the `new` instruction
     UninitializedVar(u16),

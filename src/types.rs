@@ -54,6 +54,24 @@ impl Debug for InnerFieldType {
     }
 }
 
+impl InnerFieldType {
+    #[must_use]
+    pub fn class_name(&self) -> &str {
+        match self {
+            Self::Boolean => "java/lang/Boolean",
+            Self::Byte => "java/lang/Byte",
+            Self::Char => "java/lang/Character",
+            Self::Double => "java/lang/Double",
+            Self::Float => "java/lang/Float",
+            Self::Int => "java/lang/Integer",
+            Self::Long => "java/lang/Long",
+            Self::Short => "java/lang/Short",
+            Self::Object { base, generics: _ } => base,
+            Self::Tuple(_) => "java/lang/Object",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub struct IRFieldType {
     pub ty: InnerFieldType,
