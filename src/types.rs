@@ -71,6 +71,7 @@ impl InnerFieldType {
         }
     }
 
+    #[must_use]
     pub fn to_field_type(&self) -> FieldType {
         match self {
             Self::Boolean => FieldType::Boolean,
@@ -81,8 +82,8 @@ impl InnerFieldType {
             Self::Int => FieldType::Int,
             Self::Long => FieldType::Long,
             Self::Short => FieldType::Short,
-            Self::Object { base, generics } => FieldType::Object(base.clone()),
-            Self::Tuple(tys) => FieldType::Array(Box::new(todo!())),
+            Self::Object { base, generics: _ } => FieldType::Object(base.clone()),
+            Self::Tuple(_tys) => FieldType::Array(Box::new(todo!())),
         }
     }
 }

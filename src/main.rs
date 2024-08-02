@@ -56,11 +56,7 @@ fn main() {
 
         let mut contents = Vec::new();
         compiled.write(&mut contents).unwrap();
-        fs::write(
-            format!("{}/{}.class", base_path.display(), class.replace('/', "$")),
-            contents,
-        )
-        .unwrap();
+        fs::write(format!("{}/{class}.class", base_path.display()), contents).unwrap();
     }
 }
 

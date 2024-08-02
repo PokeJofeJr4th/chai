@@ -136,7 +136,8 @@ pub fn get_global_context(syn: &[TopLevel]) -> Result<Context, String> {
 fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> Result<(), String> {
     match syn {
         TopLevel::Import(import_tree) => {
-            resolve_imports(parents, import_tree, context)?;
+            resolve_imports(parents, import_tree, context)
+                .or_else(|_| resolve_imports(&[], import_tree, context))?;
         }
         TopLevel::Function {
             name,
@@ -241,7 +242,7 @@ fn interpret_class(
 ) -> Result<(), String> {
     let mut context = context.child();
     for syn in &syn {
-        apply_top_level(parents, &mut context, syn)?;
+        apply_top_level(&[parents, &[class_name]].concat(), &mut context, syn)?;
     }
     let mut ir_functions = Vec::new();
     for x in syn {
@@ -286,8 +287,8 @@ fn interpret_class(
             }
             TopLevel::Class(inner_class_name, class_body) => {
                 interpret_class(
-                    &[parents, &[class_name]].concat(),
-                    &inner_class_name,
+                    parents,
+                    &(class_name.to_string() + "$" + &inner_class_name).into(),
                     class_body,
                     &context,
                     class_table,
@@ -297,7 +298,7 @@ fn interpret_class(
         }
     }
     class_table.insert(
-        (parents.join("/") + if parents.is_empty() { "" } else { "/" } + &*class_name).into(),
+        (parents.join("/") + if parents.is_empty() { "" } else { "/" } + class_name).into(),
         ir_functions,
     );
     Ok(())
