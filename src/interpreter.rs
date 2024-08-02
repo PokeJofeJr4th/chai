@@ -1,6 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
-
-use jvmrs_lib::access;
+use std::{borrow::Cow, collections::HashMap, ops::Add, sync::Arc};
 
 use crate::{
     parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator},
@@ -141,13 +139,14 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
         }
         TopLevel::Function {
             name,
+            access,
             params,
             return_type,
             body: _,
         } => {
             let function_info = FunctionInfo {
                 class: parents.join("/").into(),
-                access: access!(private static),
+                access: *access,
                 name: name.clone(),
                 params: params
                     .iter()
@@ -187,6 +186,7 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
         match item {
             TopLevel::Function {
                 name,
+                access,
                 params,
                 return_type,
                 body: _,
@@ -196,7 +196,7 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
                 .or_default()
                 .push(Arc::new(FunctionInfo {
                     class: info.name.clone(),
-                    access: access!(public static),
+                    access: *access,
                     name: name.clone(),
                     params: params.iter().map(|(t, _)| t.clone()).collect(),
                     ret: return_type.clone().unwrap_or(IRFieldType::VOID),
@@ -249,6 +249,7 @@ fn interpret_class(
         match x {
             TopLevel::Function {
                 name,
+                access,
                 params,
                 return_type,
                 body,
@@ -256,6 +257,18 @@ fn interpret_class(
                 let mut function_context = context.child();
                 let mut local_var_table = Vec::new();
                 let mut param_types = Vec::new();
+                if !access.is_static() {
+                    let this_type = IRFieldType {
+                        ty: InnerFieldType::Object {
+                            base: parents.join("/").add(class_name).into(),
+                            generics: Vec::new(),
+                        },
+                        array_depth: 0,
+                    };
+                    param_types.push(this_type.clone());
+                    function_context.insert("this".into(), CtxItem::Variable(0, this_type.clone()));
+                    local_var_table.push((this_type, "this".into()));
+                }
                 for (ty, param) in params {
                     let ty = resolve_type(&ty, &function_context)?;
                     param_types.push(ty.clone());

@@ -3,6 +3,8 @@ use std::{
     sync::Arc,
 };
 
+use jvmrs_lib::AccessFlags;
+
 use crate::types::IRFieldType;
 
 pub struct ImportTree {
@@ -32,6 +34,7 @@ pub enum TopLevel {
     Import(ImportTree),
     Function {
         name: Arc<str>,
+        access: AccessFlags,
         params: Vec<(IRFieldType, Arc<str>)>,
         return_type: Option<IRFieldType>,
         body: Expression,

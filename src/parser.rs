@@ -1,5 +1,7 @@
 use std::iter::Peekable;
 
+use jvmrs_lib::{access, AccessFlags};
+
 use crate::{
     lexer::token::Token,
     parser::syntax::{BinaryOperator, UnaryOperator},
@@ -71,6 +73,19 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
             let_token!(src => Token::RCurly, "`}`");
             Ok(TopLevel::Class(class_name, syntax))
         },
+        Token::Ident(id) if &*id == "interface" => {
+            let_token!(src => Token::Ident(class_name), "interface name");
+            let_token!(src => Token::LCurly, "`{`");
+            let mut syntax = Vec::new();
+            loop {
+                match src.peek() {
+                    Some(Token::RCurly) => break,
+                    _ => syntax.push(inner_parse(src)?)
+                }
+            }
+            let_token!(src => Token::RCurly, "`}`");
+            Ok(TopLevel::Class(class_name, syntax))
+        },
         Token::Ident(id) if &*id == "mod" => {
             let_token!(src => Token::Ident(mod_name), "module name");
             let_token!(src => Token::LCurly, "`{`");
@@ -84,7 +99,7 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
             let_token!(src => Token::RCurly, "`}`");
             Ok(TopLevel::Class(mod_name, items))
         }
-    } "`import`, `class`, or `fn`")
+    } "`import`, `class`, `interface`, `mod`, or `fn`")
 }
 
 fn parse_import_tree(
@@ -137,11 +152,17 @@ fn parse_import_node(
 fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLevel, String> {
     let_token!(src => Token::Ident(name), "function name identifier");
     let_token!(src => Token::LParen, "`(`");
+    let mut access = access!(public static);
 
     let mut params = Vec::new();
     if src.peek() == Some(&Token::RParen) {
         src.next();
     } else {
+        if matches!(src.peek(), Some(Token::Ident(id)) if &**id == "this") {
+            src.next();
+            src.next();
+            access = access & AccessFlags(!AccessFlags::ACC_STATIC.0);
+        }
         loop {
             let ty = parse_type(src)?;
             let_token!(src => Token::Ident(field_name), "parameter name identifier");
@@ -173,6 +194,7 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
 
     Ok(TopLevel::Function {
         name,
+        access,
         params,
         return_type,
         body,

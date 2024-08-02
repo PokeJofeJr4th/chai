@@ -8,24 +8,23 @@ class chai {
         fn none() -> java.lang.Optional;
     }
 }
-
 mod java {
     mod lang {
-        class String {
-
-        }
-
+        class String {}
         class Integer {
             fn parseInt(java.lang.String value) -> int;
             fn valueOf(int value) -> java.lang.Integer;
         }
-
-        class Object {
-            
+        class Float {
+            fn parseFloat(java.lang.String value) -> float;
+            fn valueOf(float value) -> java.lang.Float;
         }
+        class Object {}
 
+        interface Comparable {
+            fn compareTo(this, java.lang.Object o) -> int;
+        }
     }
-
     mod util {
         class Optional {
             fn of(java.lang.Object object) -> java.lang.Optional;
@@ -33,6 +32,5 @@ mod java {
         }
     }
 }
-
 import java.lang.{String, Integer, Object};
 import chai.{print, option, range};
