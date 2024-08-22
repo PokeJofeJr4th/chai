@@ -1,5 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, ops::Add, sync::Arc};
 
+use jvmrs_lib::FieldType;
+
 use crate::{
     parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator},
     types::{IRFieldType, InnerFieldType},
@@ -549,22 +551,29 @@ fn interpret_syntax(
         (
             Expression::Tuple(elements),
             IRFieldType {
-                ty: InnerFieldType::Tuple(tup_types),
+                ty: ref ty @ InnerFieldType::Tuple(ref tup_types),
                 array_depth: 0,
             },
         ) => {
             let mut out = Vec::new();
+            let FieldType::Array(inner) = ty.to_field_type() else {
+                unreachable!()
+            };
+            let inner = *inner;
+            // println!("Building tuple with {inner:?} elements");
             for (element, ty) in elements.iter().zip(tup_types) {
                 let expr =
                     interpret_syntax(element, function_context, local_var_table, ty.clone())?;
-                let expr = if ty.is_primitive() {
-                    IRExpression::UnaryOperation(ty, UnaryOperator::Box, Box::new(expr))
+                let expr = if ty.is_primitive() && inner.is_reference() {
+                    IRExpression::UnaryOperation(ty.clone(), UnaryOperator::Box, Box::new(expr))
+                } else if !ty.is_primitive() && !inner.is_reference() {
+                    IRExpression::UnaryOperation(ty.clone(), UnaryOperator::Unbox, Box::new(expr))
                 } else {
                     expr
                 };
                 out.push(expr);
             }
-            Ok(IRExpression::MakeTuple(out))
+            Ok(IRExpression::MakeTuple(inner, out))
         }
         (Expression::UnaryOperation(op, inner), ty) => {
             // TODO: get a type hint

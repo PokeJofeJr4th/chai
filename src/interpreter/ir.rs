@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use jvmrs_lib::FieldType;
+
 use crate::{
     parser::syntax::{BinaryOperator, UnaryOperator},
     types::{IRFieldType, InnerFieldType},
@@ -81,7 +83,7 @@ pub enum IRExpression {
     Long(i64),
     Float(f32),
     Double(f64),
-    MakeTuple(Vec<IRExpression>),
+    MakeTuple(FieldType, Vec<IRExpression>),
     BinaryOperation(
         IRFieldType,
         Box<IRExpression>,

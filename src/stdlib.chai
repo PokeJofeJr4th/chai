@@ -24,6 +24,10 @@ mod java {
         interface Comparable {
             fn compareTo(this, java.lang.Object o) -> int;
         }
+
+        interface Comparator {
+            fn compare(this, java.lang.Object a, java.lang.Object b) -> int;
+        }
     }
     mod util {
         class Optional {

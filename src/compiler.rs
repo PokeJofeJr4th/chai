@@ -57,7 +57,10 @@ fn write_verification_type(ty: &VerificationType, class: &mut Class, bytes: &mut
 fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, String> {
     let mut body: Vec<Instruction> = Vec::new();
     body.extend(compile_expression(func.body, class)?);
-    if !matches!(body.last(), Some(Instruction::Goto(_))) {
+    if !matches!(
+        body.last(),
+        Some(Instruction::Goto(_) | Instruction::Return(_) | Instruction::ReturnVoid)
+    ) {
         match &func.ret {
             Some(ret) => body.push(Instruction::Return(ret.to_primitive())),
             None => body.push(Instruction::ReturnVoid),
@@ -174,16 +177,14 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     code.extend((required_symbols.len() as u16).to_be_bytes());
     code.extend(stack_map);
 
+    let parameters: Vec<_> = func.params.into_iter().map(|a| a.to_field_type()).collect();
+
     Ok(MethodInfo {
         name: func.name,
         access: access!(public static),
         ty: MethodDescriptor {
-            parameter_size: func
-                .params
-                .iter()
-                .map(|a| a.to_field_type().get_size())
-                .sum(),
-            parameters: func.params.into_iter().map(|a| a.to_field_type()).collect(),
+            parameter_size: parameters.iter().map(FieldType::get_size).sum(),
+            parameters,
             return_type: func.ret.as_ref().map(IRFieldType::to_field_type),
         },
         attributes: vec![AttributeInfo {
@@ -229,12 +230,20 @@ fn compile_expression(
             Instruction::LoadConst(Constant::Float(f))
         }]),
         IRExpression::Double(_) => todo!(),
-        IRExpression::MakeTuple(values) => {
+        IRExpression::MakeTuple(field_ty, values) => {
             #[allow(clippy::cast_possible_wrap)]
             let mut code = compile_expression(IRExpression::Int(values.len() as i32), class)?;
-            code.push(Instruction::ReferenceArray(FieldType::Object(
-                "java/lang/Object".into(),
-            )));
+            code.push(match field_ty {
+                FieldType::Boolean => Instruction::NewArray(PrimitiveType::Boolean),
+                FieldType::Byte => Instruction::NewArray(PrimitiveType::Byte),
+                FieldType::Short => Instruction::NewArray(PrimitiveType::Short),
+                FieldType::Int => Instruction::NewArray(PrimitiveType::Int),
+                FieldType::Long => Instruction::NewArray(PrimitiveType::Long),
+                FieldType::Float => Instruction::NewArray(PrimitiveType::Float),
+                FieldType::Double => Instruction::NewArray(PrimitiveType::Double),
+                FieldType::Char => Instruction::NewArray(PrimitiveType::Char),
+                field_ty => Instruction::ReferenceArray(field_ty),
+            });
             for (idx, value) in values.into_iter().enumerate() {
                 code.push(Instruction::Dup);
                 #[allow(clippy::cast_possible_wrap)]
@@ -714,6 +723,9 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                 }
                 Instruction::ReferenceArray(a) => {
                     current_stack.push(VerificationType::from(a.clone()));
+                }
+                Instruction::NewArray(a) => {
+                    current_stack.push(VerificationType::Object(format!("[{}", a.letter()).into()));
                 }
                 Instruction::ArrayStore(_) => {
                     current_stack.pop();

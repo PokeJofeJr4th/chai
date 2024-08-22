@@ -22,6 +22,22 @@ pub enum PrimitiveType {
     Reference,
 }
 
+impl PrimitiveType {
+    pub const fn letter(&self) -> char {
+        match self {
+            Self::Boolean => 'Z',
+            Self::Byte => 'B',
+            Self::Short => 'S',
+            Self::Int => 'I',
+            Self::Long => 'J',
+            Self::Float => 'F',
+            Self::Double => 'D',
+            Self::Char => 'C',
+            Self::Reference => 'L',
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operator {
     Add,

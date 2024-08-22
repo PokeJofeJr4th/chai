@@ -98,7 +98,7 @@ impl InnerFieldType {
                     ts = t;
                 }
                 let mut field_type = ts.to_field_type();
-                for _ in 0..ts.array_depth {
+                for _ in 0..=ts.array_depth {
                     field_type = FieldType::Array(Box::new(field_type));
                 }
                 field_type
@@ -143,20 +143,7 @@ impl IRFieldType {
 
     #[must_use]
     pub fn to_field_type(&self) -> FieldType {
-        let mut ty = match &self.ty {
-            InnerFieldType::Boolean => FieldType::Boolean,
-            InnerFieldType::Byte => FieldType::Byte,
-            InnerFieldType::Short => FieldType::Short,
-            InnerFieldType::Int => FieldType::Int,
-            InnerFieldType::Long => FieldType::Long,
-            InnerFieldType::Float => FieldType::Float,
-            InnerFieldType::Double => FieldType::Double,
-            InnerFieldType::Char => FieldType::Char,
-            InnerFieldType::Object { base, generics: _ } => FieldType::Object(base.clone()),
-            InnerFieldType::Tuple(_) => {
-                FieldType::Array(Box::new(FieldType::Object("java/lang/Object".into())))
-            }
-        };
+        let mut ty = self.ty.to_field_type();
         for _ in 0..self.array_depth {
             ty = FieldType::Array(Box::new(ty));
         }
