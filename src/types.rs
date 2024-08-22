@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use jvmrs_lib::FieldType;
 
-use crate::compiler::instruction::PrimitiveType;
+use crate::{compiler::instruction::PrimitiveType, interpreter::types::TypeHint};
 
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub enum InnerFieldType {
@@ -72,6 +72,7 @@ impl InnerFieldType {
     }
 
     #[must_use]
+    /// # Panics
     pub fn to_field_type(&self) -> FieldType {
         match self {
             Self::Boolean => FieldType::Boolean,
@@ -83,7 +84,25 @@ impl InnerFieldType {
             Self::Long => FieldType::Long,
             Self::Short => FieldType::Short,
             Self::Object { base, generics: _ } => FieldType::Object(base.clone()),
-            Self::Tuple(_tys) => FieldType::Array(Box::new(todo!())),
+            Self::Tuple(t) if t.is_empty() => {
+                FieldType::Array(Box::new(FieldType::Object(Arc::from("java/lang/Object"))))
+            }
+            Self::Tuple(tys) => {
+                let mut ts = tys[0].clone();
+                for t in tys.iter().skip(1) {
+                    let TypeHint::Concrete(t) =
+                        TypeHint::Concrete(t.clone()).intersect(&TypeHint::Concrete(ts))
+                    else {
+                        panic!()
+                    };
+                    ts = t;
+                }
+                let mut field_type = ts.to_field_type();
+                for _ in 0..ts.array_depth {
+                    field_type = FieldType::Array(Box::new(field_type));
+                }
+                field_type
+            }
         }
     }
 }

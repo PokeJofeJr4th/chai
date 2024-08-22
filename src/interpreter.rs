@@ -426,7 +426,7 @@ fn type_hint(
             let lhs = type_hint(lhs, function_context, local_var_table)?;
             let rhs = type_hint(rhs, function_context, local_var_table)?;
 
-            lhs.intersect(&rhs)
+            Ok(lhs.intersect(&rhs))
         }
         Expression::BinaryOperation(
             _,
@@ -468,7 +468,7 @@ fn type_hint(
         } => {
             let body_ty = type_hint(body, function_context, local_var_table)?;
             let else_ty = type_hint(else_body, function_context, local_var_table)?;
-            body_ty.intersect(&else_ty)
+            Ok(body_ty.intersect(&else_ty))
         }
     }
 }

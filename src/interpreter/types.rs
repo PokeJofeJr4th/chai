@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     parser::syntax::BinaryOperator,
     types::{IRFieldType, InnerFieldType},
@@ -127,26 +129,30 @@ impl TypeHint {
         }
     }
 
-    /// # Errors
-    pub fn intersect(&self, other: &Self) -> Result<Self, String> {
+    #[must_use]
+    pub fn intersect(&self, other: &Self) -> Self {
         if self == other {
-            return Ok(self.clone());
+            return self.clone();
         }
         if self == &Self::Integral && other.is_integral() {
-            return Ok(other.clone());
+            return other.clone();
         }
         if other == &Self::Integral && self.is_integral() {
-            return Ok(self.clone());
+            return self.clone();
         }
         if self == &Self::Floating && other.is_floating() {
-            return Ok(other.clone());
+            return other.clone();
         }
         if other == &Self::Floating && self.is_floating() {
-            return Ok(self.clone());
+            return self.clone();
         }
-        Err(format!(
-            "Types `{self:?}` and `{other:?}` are not compatible"
-        ))
+        Self::Concrete(IRFieldType {
+            ty: InnerFieldType::Object {
+                base: Arc::from("java/lang/Object"),
+                generics: Vec::new(),
+            },
+            array_depth: 0,
+        })
     }
 
     #[must_use]
@@ -216,7 +222,7 @@ pub fn operate_types(
         ) if (lhs.is_subtype(rhs) || rhs.is_subtype(lhs))
             && (lhs.is_floating() || lhs.is_integral()) =>
         {
-            Ok(lhs.intersect(rhs)?)
+            Ok(lhs.intersect(rhs))
         }
         (lhs, BinaryOperator::Eq, rhs) if lhs.is_subtype(rhs) || rhs.is_subtype(lhs) => {
             Ok(TypeHint::Concrete(InnerFieldType::Boolean.into()))
