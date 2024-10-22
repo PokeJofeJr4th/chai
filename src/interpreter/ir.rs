@@ -79,6 +79,10 @@ pub enum IRExpression {
     Void,
     LocalVar(IRFieldType, usize),
     String(Arc<str>),
+    StringConcat {
+        pattern: String,
+        slots: Vec<IRExpression>,
+    },
     Int(i32),
     Long(i64),
     Float(f32),
@@ -99,7 +103,11 @@ pub enum IRExpression {
         body: Box<IRExpression>,
         condition: Box<IRExpression>,
     },
-    SetLocal(IRFieldType, usize, Box<IRExpression>),
+    SetLocal {
+        ty: IRFieldType,
+        index: usize,
+        value: Box<IRExpression>,
+    },
     Invoke(Arc<FunctionInfo>, Vec<IRExpression>),
 }
 

@@ -206,6 +206,7 @@ fn compile_expression(
             Ok(vec![Instruction::Load(ty.to_primitive(), local_idx as u8)])
         }
         IRExpression::String(s) => Ok(vec![Instruction::LoadConst(Constant::StringRef(s))]),
+        IRExpression::StringConcat { pattern, slots } => todo!(),
         IRExpression::Int(i) => Ok(vec![match i {
             -1 => Instruction::Push(Const::IM1),
             0 => Instruction::Push(Const::I0),
@@ -219,7 +220,9 @@ fn compile_expression(
                 |i| Instruction::PushByte(i as u16),
             ),
         }]),
-        IRExpression::Long(_) => todo!(),
+        IRExpression::Long(0) => Ok(vec![Instruction::Push(Const::L0)]),
+        IRExpression::Long(1) => Ok(vec![Instruction::Push(Const::L1)]),
+        IRExpression::Long(l) => Ok(vec![Instruction::LoadConst2(Constant::Long(l))]),
         IRExpression::Float(f) => Ok(vec![if f == 0.0 {
             Instruction::Push(Const::F0)
         } else if (f - 1.0).abs() < f32::EPSILON {
@@ -229,7 +232,13 @@ fn compile_expression(
         } else {
             Instruction::LoadConst(Constant::Float(f))
         }]),
-        IRExpression::Double(_) => todo!(),
+        IRExpression::Double(d) => Ok(vec![if d == 0.0 {
+            Instruction::Push(Const::D0)
+        } else if (d - 1.0).abs() < f64::EPSILON {
+            Instruction::Push(Const::D1)
+        } else {
+            Instruction::LoadConst(Constant::Double(d))
+        }]),
         IRExpression::MakeTuple(field_ty, values) => {
             #[allow(clippy::cast_possible_wrap)]
             let mut code = compile_expression(IRExpression::Int(values.len() as i32), class)?;
@@ -444,7 +453,11 @@ fn compile_expression(
             // end
             Ok(code)
         }
-        IRExpression::SetLocal(ty, idx, expr) => {
+        IRExpression::SetLocal {
+            ty,
+            index: idx,
+            value: expr,
+        } => {
             let mut code = compile_expression(*expr, class)?;
             code.push(Instruction::Store(ty.to_primitive(), idx as u8));
             Ok(code)
