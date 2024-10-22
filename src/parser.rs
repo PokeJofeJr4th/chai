@@ -44,8 +44,9 @@ pub fn parse(src: Vec<Token>) -> Result<Vec<TopLevel>, String> {
     let mut toks = src.into_iter().peekable();
     let mut syntax = Vec::new();
     while toks.peek().is_some() {
-        syntax.push(inner_parse(&mut toks)?);
-        println!("{:?}", syntax.last().unwrap());
+        let syn = inner_parse(&mut toks)?;
+        println!("{syn:?}");
+        syntax.push(syn);
     }
     Ok(syntax)
 }
@@ -486,10 +487,9 @@ fn parse_item(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Express
                     break None;
                 }
             };
-            if statements.is_empty() && ret.is_some() {
-                Ok(*ret.unwrap())
-            } else {
-                Ok(Expression::Block { statements, ret })
+            match (ret, statements.is_empty()) {
+                (Some(ret), true) => Ok(*ret),
+                (ret, _) => Ok(Expression::Block { statements, ret })
             }
         }
     } "expression")?;

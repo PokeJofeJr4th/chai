@@ -206,12 +206,8 @@ impl Class {
         }
 
         writer.write_all(&(u16::try_from(self.attributes.len())?).to_be_bytes())?;
-        for AttributeInfo { name, info } in &self.attributes {
-            let attr_idx =
-                u16::try_from(self.get_constant(&Constant::String(name.clone())).unwrap()).unwrap();
-            writer.write_all(&attr_idx.to_be_bytes())?;
-            writer.write_all(&u32::try_from(info.len()).unwrap().to_be_bytes())?;
-            writer.write_all(info)?;
+        for attr in &self.attributes {
+            attr.write(writer, self)?;
         }
         // forbid self-modification for the writing stretch
         let _ = x;
@@ -384,14 +380,14 @@ impl Class {
             } => {
                 let class_idx = u16::try_from(
                     self.get_constant(&Constant::ClassRef(class.clone()))
-                        .unwrap(),
+                    .ok_or_else(|| format!("Couldn't find class reference for Constant::MethodRef: {method_type:?} {class}.{name}"))?,
                 )?;
                 let name_ty_idx = u16::try_from(
                     self.get_constant(&Constant::NameTypeDescriptor {
                         name: name.clone(),
                         type_descriptor: method_type.repr(),
                     })
-                    .unwrap(),
+                    .ok_or_else(|| format!("Couldn't find name and type descriptor for Constant::MethodRef: {method_type:?} {class}.{name}"))?,
                 )?;
                 writer.write_all(&[10])?;
                 writer.write_all(&class_idx.to_be_bytes())?;
@@ -404,14 +400,14 @@ impl Class {
             } => {
                 let class_idx = u16::try_from(
                     self.get_constant(&Constant::ClassRef(class.clone()))
-                        .unwrap(),
+                    .ok_or_else(|| format!("Couldn't find class reference for Constant::InterfaceRef: {interface_type:?} {class}.{name}"))?,
                 )?;
                 let name_ty_idx = u16::try_from(
                     self.get_constant(&Constant::NameTypeDescriptor {
                         name: name.clone(),
                         type_descriptor: interface_type.repr(),
                     })
-                    .unwrap(),
+                    .ok_or_else(|| format!("Couldn't find name and type descriptor for Constant::InterfaceRef: {interface_type:?} {class}.{name}"))?,
                 )?;
                 writer.write_all(&[11])?;
                 writer.write_all(&class_idx.to_be_bytes())?;
@@ -422,10 +418,10 @@ impl Class {
                 type_descriptor,
             } => {
                 let name_idx =
-                    u16::try_from(self.get_constant(&Constant::String(name.clone())).unwrap())?;
+                    u16::try_from(self.get_constant(&Constant::String(name.clone())).ok_or_else(|| format!("Couldn't find name for Constant::NameTypeDescriptor: {type_descriptor} {name}"))?)?;
                 let descriptor_idx = u16::try_from(
                     self.get_constant(&Constant::String(type_descriptor.clone()))
-                        .unwrap(),
+                        .ok_or_else(|| format!("Couldn't find type descriptor for Constant::NameTypeDescriptor: {type_descriptor} {name}"))?,
                 )?;
                 writer.write_all(&[12])?;
                 writer.write_all(&name_idx.to_be_bytes())?;
@@ -443,9 +439,8 @@ impl Class {
                             name: name.clone(),
                             method_type: method_type.clone(),
                         })
-                        .unwrap(),
-                    )
-                    .unwrap();
+                        .ok_or_else(|| format!("Couldn't find method reference for Constant::MethodHandle::InvokeStatic: {method_type:?} {class}.{name}"))?,
+                    )?;
                     writer.write_all(&[15, 6])?;
                     writer.write_all(&method_idx.to_be_bytes())?;
                 }
@@ -461,10 +456,8 @@ impl Class {
                     self.get_constant(&Constant::NameTypeDescriptor {
                         name: method_name.clone(),
                         type_descriptor: method_type.repr(),
-                    })
-                    .unwrap(),
-                )
-                .unwrap();
+                    }).ok_or_else(|| format!("Couldn't find name and type descriptor for Constant::InvokeDynamic: {method_type:?} {method_name}"))?,
+                )?;
                 writer.write_all(&[18])?;
                 writer.write_all(&bootstrap_index.to_be_bytes())?;
                 writer.write_all(&name_ty_idx.to_be_bytes())?;

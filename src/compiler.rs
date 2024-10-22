@@ -91,7 +91,7 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     let mut symbol_table: HashMap<Symbol, usize> = HashMap::new();
     let mut required_symbols: Vec<usize> = Vec::new();
     let mut offset: usize = 0;
-    let verification_type_map = generate_stack_map(&body);
+    let verification_type_map = generate_stack_map(&body)?;
     for instr in &body {
         if let Instruction::Label(label) = instr {
             symbol_table.insert(label.clone(), offset);
@@ -101,8 +101,15 @@ fn compile_function(class: &mut Class, func: IRFunction) -> Result<MethodInfo, S
     }
     let verification_type_map: HashMap<usize, Vec<VerificationType>> = verification_type_map
         .into_iter()
-        .map(|(k, v)| (*symbol_table.get(&k).unwrap(), v))
-        .collect();
+        .map(|(k, v)| -> Result<(usize, Vec<VerificationType>), String> {
+            Ok((
+                *symbol_table.get(&k).ok_or_else(|| {
+                    format!("Failed to get symbol `{k:?}` for verification type map `{v:?}`")
+                })?,
+                v,
+            ))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
     println!("{offset}");
     let mut code_bytes = Vec::new();
     let mut offset = 0;
@@ -597,7 +604,7 @@ fn compile_branch(
                 _ => unreachable!(),
             });
             code.push(Instruction::IfZcmp(
-                ICmp::try_from(op).unwrap(),
+                ICmp::try_from(op).map_err(|()| format!("Invalid integer comparison: `{op}`"))?,
                 branch_label,
             ));
             Ok(code)
@@ -621,13 +628,15 @@ fn compile_branch(
             // either put the second one on the stack or use a zero comparison
             if *rhs == IRExpression::Int(0) {
                 code.push(Instruction::IfZcmp(
-                    ICmp::try_from(op).unwrap(),
+                    ICmp::try_from(op)
+                        .map_err(|()| format!("Invalid integer comparison: `{op}`"))?,
                     branch_label,
                 ));
             } else {
                 code.extend(compile_expression(*rhs, class)?);
                 code.push(Instruction::IfIcmp(
-                    ICmp::try_from(op).unwrap(),
+                    ICmp::try_from(op)
+                        .map_err(|()| format!("Invalid integer comparison: `{op}`"))?,
                     branch_label,
                 ));
             }
@@ -660,11 +669,12 @@ fn compile_modify(
 }
 
 #[allow(clippy::too_many_lines)]
-fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationType>> {
-    fn find_symbol(code: &[Instruction], sym: &Symbol) -> usize {
+fn generate_stack_map(
+    code: &[Instruction],
+) -> Result<HashMap<Symbol, Vec<VerificationType>>, String> {
+    fn find_symbol(code: &[Instruction], sym: &Symbol) -> Option<usize> {
         code.iter()
             .position(|i| matches!(i, Instruction::Label(l) if l == sym))
-            .unwrap()
     }
 
     fn visit_stack_map(
@@ -672,7 +682,7 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
         index: u16,
         current_stack: &mut Vec<VerificationType>,
         finished_stacks: &mut HashMap<Symbol, Vec<VerificationType>>,
-    ) {
+    ) -> Result<(), String> {
         for i in index.. {
             #[allow(clippy::cast_possible_truncation)]
             match &code[i as usize] {
@@ -681,12 +691,14 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                         finished_stacks.insert(label.clone(), current_stack.clone());
                         visit_stack_map(
                             code,
-                            find_symbol(code, label) as u16,
+                            find_symbol(code, label).ok_or_else(|| {
+                                format!("Couldn't find symbol `{label:?}` in code `{code:?}`")
+                            })? as u16,
                             current_stack,
                             finished_stacks,
-                        );
+                        )?;
                     }
-                    return;
+                    return Ok(());
                 }
                 Instruction::IfACmp(_, sym) | Instruction::IfIcmp(_, sym) => {
                     current_stack.pop();
@@ -695,10 +707,12 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                         finished_stacks.insert(sym.clone(), current_stack.clone());
                         visit_stack_map(
                             code,
-                            find_symbol(code, sym) as u16,
+                            find_symbol(code, sym).ok_or_else(|| {
+                                format!("Couldn't find symbol `{sym:?}` in code `{code:?}`")
+                            })? as u16,
                             &mut current_stack.clone(),
                             finished_stacks,
-                        );
+                        )?;
                     }
                 }
                 Instruction::IfZcmp(_, sym) => {
@@ -707,10 +721,12 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                         finished_stacks.insert(sym.clone(), current_stack.clone());
                         visit_stack_map(
                             code,
-                            find_symbol(code, sym) as u16,
+                            find_symbol(code, sym).ok_or_else(|| {
+                                format!("Couldn't find symbol `{sym:?}` in code `{code:?}`")
+                            })? as u16,
                             &mut current_stack.clone(),
                             finished_stacks,
-                        );
+                        )?;
                     }
                 }
                 Instruction::Operate(
@@ -740,7 +756,7 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                     current_stack.pop();
                     current_stack.push(VerificationType::Int);
                 }
-                Instruction::Return(_) | Instruction::ReturnVoid => return,
+                Instruction::Return(_) | Instruction::ReturnVoid => return Ok(()),
                 Instruction::Label(sym) => {
                     if !finished_stacks.contains_key(sym) {
                         finished_stacks.insert(sym.clone(), current_stack.clone());
@@ -784,7 +800,12 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                     current_stack.push(VerificationType::from(*ty));
                 }
                 Instruction::Dup | Instruction::Dup2 => {
-                    current_stack.push(current_stack.last().unwrap().clone());
+                    current_stack.push(
+                        current_stack
+                            .last()
+                            .ok_or_else(|| "Attempt to pop from empty stack".to_string())?
+                            .clone(),
+                    );
                 }
                 Instruction::PushByte(_) => current_stack.push(VerificationType::Int),
                 Instruction::LoadConst(c) | Instruction::LoadConst2(c) => match c {
@@ -803,10 +824,11 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                 other => todo!("Visit StackMap {other:?}"),
             }
         }
+        Ok(())
     }
 
     let mut map = HashMap::new();
-    visit_stack_map(code, 0, &mut Vec::new(), &mut map);
+    visit_stack_map(code, 0, &mut Vec::new(), &mut map)?;
     println!("Stack Map: {map:?}");
-    map
+    Ok(map)
 }
