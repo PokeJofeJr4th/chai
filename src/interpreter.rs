@@ -590,14 +590,73 @@ fn interpret_syntax(
                 local_var_table,
                 lhs_ty.clone().as_concrete(),
             )?;
-            let rhs =
-                interpret_syntax(rhs, function_context, local_var_table, rhs_ty.as_concrete())?;
-            Ok(IRExpression::BinaryOperation(
-                lhs_ty.as_concrete(),
-                Box::new(lhs),
-                *op,
-                Box::new(rhs),
-            ))
+            let rhs = interpret_syntax(
+                rhs,
+                function_context,
+                local_var_table,
+                rhs_ty.clone().as_concrete(),
+            )?;
+
+            if (lhs_ty.is_string() || rhs_ty.is_string()) && *op == BinaryOperator::Add {
+                match (lhs, rhs) {
+                    (IRExpression::String(lhs), rhs) => Ok(IRExpression::StringConcat {
+                        pattern: String::from(&*lhs) + "\x01",
+                        slots: vec![(rhs_ty.as_concrete(), rhs)],
+                    }),
+                    (lhs, IRExpression::String(rhs)) => {
+                        let mut pattern = String::from(&*rhs);
+                        pattern.insert(0, '\x01');
+                        Ok(IRExpression::StringConcat {
+                            pattern,
+                            slots: vec![(lhs_ty.as_concrete(), lhs)],
+                        })
+                    }
+                    (
+                        IRExpression::StringConcat {
+                            mut pattern,
+                            mut slots,
+                        },
+                        IRExpression::StringConcat {
+                            pattern: r_pattern,
+                            slots: r_slots,
+                        },
+                    ) => {
+                        pattern.push_str(&r_pattern);
+                        slots.extend(r_slots);
+                        Ok(IRExpression::StringConcat { pattern, slots })
+                    }
+                    (
+                        IRExpression::StringConcat {
+                            mut pattern,
+                            mut slots,
+                        },
+                        rhs,
+                    ) => {
+                        pattern.push('\x01');
+                        slots.push((rhs_ty.as_concrete(), rhs));
+                        Ok(IRExpression::StringConcat { pattern, slots })
+                    }
+                    (
+                        lhs,
+                        IRExpression::StringConcat {
+                            mut pattern,
+                            mut slots,
+                        },
+                    ) => {
+                        pattern.insert(0, '\x01');
+                        slots.push((lhs_ty.as_concrete(), lhs));
+                        Ok(IRExpression::StringConcat { pattern, slots })
+                    }
+                    _ => unreachable!(),
+                }
+            } else {
+                Ok(IRExpression::BinaryOperation(
+                    lhs_ty.as_concrete(),
+                    Box::new(lhs),
+                    *op,
+                    Box::new(rhs),
+                ))
+            }
         }
         (Expression::FunctionCall { function, args }, _ty) => {
             let mut arg_expr = Vec::new();
@@ -661,7 +720,11 @@ fn interpret_syntax(
             function_context.insert(var.clone(), CtxItem::Variable(local_index, ty.clone()));
             local_var_table.push((ty.clone(), var.clone()));
             let val = interpret_syntax(value, function_context, local_var_table, ty.clone())?;
-            Ok(IRExpression::SetLocal { ty: ty.clone(), index: local_index, value: Box::new(val) })
+            Ok(IRExpression::SetLocal {
+                ty: ty.clone(),
+                index: local_index,
+                value: Box::new(val),
+            })
         }
         (Expression::Loop { body, condition }, expected_ty) if expected_ty.is_void() => {
             let loop_body =
@@ -719,7 +782,11 @@ fn interpret_syntax(
                             interpret_syntax(end, &mut loop_context, local_var_table, ty.clone())?;
 
                         return Ok(IRExpression::For {
-                            init: Box::new(IRExpression::SetLocal { ty: ty.clone(), index: var_idx, value: Box::new(start) }),
+                            init: Box::new(IRExpression::SetLocal {
+                                ty: ty.clone(),
+                                index: var_idx,
+                                value: Box::new(start),
+                            }),
                             inc: Box::new(IRExpression::BinaryOperation(
                                 ty.clone(),
                                 Box::new(IRExpression::LocalVar(ty.clone(), var_idx)),

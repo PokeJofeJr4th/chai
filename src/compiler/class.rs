@@ -86,12 +86,15 @@ impl Class {
     }
 
     pub fn register_bootstrap(&mut self, bootstrap_method: BootstrapInfo) -> u16 {
-        let bootstrap_index = self.bootstrap_methods.len() as u16;
+        let bootstrap_index = u16::try_from(self.bootstrap_methods.len()).unwrap() + 1;
         self.register_constant(Constant::InvokeDynamic {
             bootstrap_index,
             method_name: bootstrap_method.name.clone(),
             method_type: bootstrap_method.ty.clone(),
         });
+        self.register_constant(Constant::MethodHandle(
+            bootstrap_method.method_handle.clone(),
+        ));
         for bootstrap_arg in &bootstrap_method.bootstrap_arguments {
             self.register_constant(bootstrap_arg.clone());
         }
@@ -127,6 +130,49 @@ impl Class {
                 )
             })
             .collect();
+        if !self.bootstrap_methods.is_empty() {
+            let mut info = Vec::new();
+            info.extend(
+                u16::try_from(self.bootstrap_methods.len())
+                    .unwrap()
+                    .to_be_bytes(),
+            );
+            for BootstrapInfo {
+                name: _,
+                ty: _,
+                bootstrap_arguments,
+                method_handle,
+            } in &self.bootstrap_methods
+            {
+                info.extend(
+                    u16::try_from(
+                        self.get_constant(&Constant::MethodHandle(method_handle.clone()))
+                            .unwrap(),
+                    )
+                    .unwrap()
+                    .to_be_bytes(),
+                );
+                info.extend(
+                    u16::try_from(bootstrap_arguments.len())
+                        .unwrap()
+                        .to_be_bytes(),
+                );
+                for arg in bootstrap_arguments {
+                    info.extend(
+                        u16::try_from(self.get_constant(arg).unwrap())
+                            .unwrap()
+                            .to_be_bytes(),
+                    );
+                }
+            }
+            self.attributes.push(AttributeInfo {
+                name: "BootstrapMethods".into(),
+                info,
+            });
+        }
+        for attr in &self.attributes {
+            Self::insert_constant(&mut self.constant_pool, Constant::String(attr.name.clone()));
+        }
 
         let x = &self;
 
@@ -161,7 +207,13 @@ impl Class {
         }
 
         writer.write_all(&(u16::try_from(self.attributes.len())?).to_be_bytes())?;
-        // TODO: write all the attributes
+        for AttributeInfo { name, info } in &self.attributes {
+            let attr_idx =
+                u16::try_from(self.get_constant(&Constant::String(name.clone())).unwrap()).unwrap();
+            writer.write_all(&attr_idx.to_be_bytes())?;
+            writer.write_all(&u16::try_from(info.len()).unwrap().to_be_bytes())?;
+            writer.write_all(info)?;
+        }
         // forbid self-modification for the writing stretch
         let _ = x;
         Ok(())
@@ -225,6 +277,33 @@ impl Class {
             }
             Constant::MethodType(ty) => {
                 Self::insert_constant(constant_pool, Constant::String(ty.repr()));
+            }
+            Constant::InvokeDynamic {
+                bootstrap_index: _,
+                method_name,
+                method_type,
+            } => {
+                Self::insert_constant(
+                    constant_pool,
+                    Constant::NameTypeDescriptor {
+                        name: method_name.clone(),
+                        type_descriptor: method_type.repr(),
+                    },
+                );
+            }
+            Constant::MethodHandle(MethodHandle::InvokeStatic {
+                class,
+                name,
+                method_type,
+            }) => {
+                Self::insert_constant(
+                    constant_pool,
+                    Constant::MethodRef {
+                        class: class.clone(),
+                        name: name.clone(),
+                        method_type: method_type.clone(),
+                    },
+                );
             }
             _ => {}
         }
@@ -353,13 +432,44 @@ impl Class {
                 writer.write_all(&name_idx.to_be_bytes())?;
                 writer.write_all(&descriptor_idx.to_be_bytes())?;
             }
-            Constant::MethodHandle(_) => todo!(),
+            Constant::MethodHandle(mh) => match mh {
+                MethodHandle::InvokeStatic {
+                    class,
+                    name,
+                    method_type,
+                } => {
+                    let method_idx = u16::try_from(
+                        self.get_constant(&Constant::MethodRef {
+                            class: class.clone(),
+                            name: name.clone(),
+                            method_type: method_type.clone(),
+                        })
+                        .unwrap(),
+                    )
+                    .unwrap();
+                    writer.write_all(&[15, 6])?;
+                    writer.write_all(&method_idx.to_be_bytes())?;
+                }
+                _ => todo!(),
+            },
             Constant::MethodType(_) => todo!(),
             Constant::InvokeDynamic {
-                bootstrap_index: _,
-                method_name: _,
-                method_type: _,
-            } => todo!(),
+                bootstrap_index,
+                method_name,
+                method_type,
+            } => {
+                let name_ty_idx = u16::try_from(
+                    self.get_constant(&Constant::NameTypeDescriptor {
+                        name: method_name.clone(),
+                        type_descriptor: method_type.repr(),
+                    })
+                    .unwrap(),
+                )
+                .unwrap();
+                writer.write_all(&[18])?;
+                writer.write_all(&bootstrap_index.to_be_bytes())?;
+                writer.write_all(&name_ty_idx.to_be_bytes())?;
+            }
             Constant::Placeholder => todo!(),
         }
         Ok(())

@@ -23,6 +23,7 @@ pub enum PrimitiveType {
 }
 
 impl PrimitiveType {
+    #[must_use]
     pub const fn letter(&self) -> char {
         match self {
             Self::Boolean => 'Z',
@@ -150,7 +151,7 @@ pub enum Instruction<Label = i16> {
     Dup,
     IInc(u8, u8),
     Instanceof(Arc<str>),
-    InvokeDynamic(u16),
+    InvokeDynamic(u16, MethodDescriptor),
     InvokeInterface(Arc<str>, Arc<str>, MethodDescriptor, u8),
     InvokeSpecial(Arc<str>, Arc<str>, MethodDescriptor),
     InvokeVirtual(Arc<str>, Arc<str>, MethodDescriptor),
@@ -402,7 +403,7 @@ impl Instruction {
                 writer.write_all(&i.to_be_bytes())?;
                 writer.write_all(&[*n_args, 0])
             }
-            Self::InvokeDynamic(i) => {
+            Self::InvokeDynamic(i, _) => {
                 writer.write_all(&[0xBA])?;
                 writer.write_all(&i.to_be_bytes())?;
                 writer.write_all(&[0, 0])
@@ -530,7 +531,7 @@ impl<T> Instruction<T> {
             | Self::PutStatic(..)
             | Self::LoadConst2(_)
             | Self::New(_) => 3,
-            Self::InvokeDynamic(_) | Self::InvokeInterface(..) => 5,
+            Self::InvokeDynamic(_, _) | Self::InvokeInterface(..) => 5,
         }
     }
 
@@ -569,7 +570,7 @@ impl<T> Instruction<T> {
             Self::Dup => Instruction::Dup,
             Self::IInc(a, b) => Instruction::IInc(a, b),
             Self::Instanceof(a) => Instruction::Instanceof(a),
-            Self::InvokeDynamic(a) => Instruction::InvokeDynamic(a),
+            Self::InvokeDynamic(a, b) => Instruction::InvokeDynamic(a, b),
             Self::InvokeInterface(a, b, c, d) => Instruction::InvokeInterface(a, b, c, d),
             Self::InvokeSpecial(a, b, c) => Instruction::InvokeSpecial(a, b, c),
             Self::InvokeVirtual(a, b, c) => Instruction::InvokeVirtual(a, b, c),

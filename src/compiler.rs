@@ -221,7 +221,7 @@ fn compile_expression(
             };
             let invoke_dynamic = class.register_bootstrap(BootstrapInfo {
                 name: "makeConcatWithConstants".into(),
-                ty: method_descriptor,
+                ty: method_descriptor.clone(),
                 bootstrap_arguments: vec![Constant::StringRef(pattern.into())],
                 method_handle: MethodHandle::InvokeStatic {
                     class: "java/lang/invoke/StringConcatFactory".into(),
@@ -233,7 +233,10 @@ fn compile_expression(
                     ([]Object("java/lang/invoke/MethodHandles$Lookup".into()))) -> Object("java/lang/String".into())),
                 },
             });
-            code.push(Instruction::InvokeDynamic(invoke_dynamic));
+            code.push(Instruction::InvokeDynamic(
+                invoke_dynamic,
+                method_descriptor,
+            ));
             Ok(code)
         }
         IRExpression::Int(i) => Ok(vec![match i {
@@ -743,7 +746,8 @@ fn generate_stack_map(code: &[Instruction]) -> HashMap<Symbol, Vec<VerificationT
                         finished_stacks.insert(sym.clone(), current_stack.clone());
                     }
                 }
-                Instruction::InvokeStatic(_, _, descriptor) => {
+                Instruction::InvokeStatic(_, _, descriptor)
+                | Instruction::InvokeDynamic(_, descriptor) => {
                     for _ in &descriptor.parameters {
                         // TODO: verify the types?
                         current_stack.pop();
