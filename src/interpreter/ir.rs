@@ -81,7 +81,7 @@ pub enum IRExpression {
     String(Arc<str>),
     StringConcat {
         pattern: String,
-        slots: Vec<IRExpression>,
+        slots: Vec<(IRFieldType, IRExpression)>,
     },
     Int(i32),
     Long(i64),

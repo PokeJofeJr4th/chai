@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
-use jvmrs_lib::{access, method, Constant, FieldType, MethodDescriptor};
+use class::BootstrapInfo;
+use jvmrs_lib::{access, method, Constant, FieldType, MethodDescriptor, MethodHandle};
 
 use crate::{
     interpreter::{
@@ -206,7 +207,35 @@ fn compile_expression(
             Ok(vec![Instruction::Load(ty.to_primitive(), local_idx as u8)])
         }
         IRExpression::String(s) => Ok(vec![Instruction::LoadConst(Constant::StringRef(s))]),
-        IRExpression::StringConcat { pattern, slots } => todo!(),
+        IRExpression::StringConcat { pattern, slots } => {
+            let mut parameters = Vec::new();
+            let mut code = Vec::new();
+            for (slot_ty, slot_code) in slots {
+                parameters.push(slot_ty.to_field_type());
+                code.extend(compile_expression(slot_code, class)?);
+            }
+            let method_descriptor = MethodDescriptor {
+                parameter_size: parameters.iter().map(FieldType::get_size).sum(),
+                parameters,
+                return_type: Some(FieldType::Object("java/lang/String".into())),
+            };
+            let invoke_dynamic = class.register_bootstrap(BootstrapInfo {
+                name: "makeConcatWithConstants".into(),
+                ty: method_descriptor,
+                bootstrap_arguments: vec![Constant::StringRef(pattern.into())],
+                method_handle: MethodHandle::InvokeStatic {
+                    class: "java/lang/invoke/StringConcatFactory".into(),
+                    name: "makeConcatWithConstants".into(),
+                    method_type: method!(((Object("java/lang/invoke/MethodHandles$Lookup".into())),
+                    (Object("java/lang/String".into())),
+                    (Object("java/lang/invoke/MethodType".into())),
+                    (Object("java/lang/String".into())),
+                    ([]Object("java/lang/invoke/MethodHandles$Lookup".into()))) -> Object("java/lang/String".into())),
+                },
+            });
+            code.push(Instruction::InvokeDynamic(invoke_dynamic));
+            Ok(code)
+        }
         IRExpression::Int(i) => Ok(vec![match i {
             -1 => Instruction::Push(Const::IM1),
             0 => Instruction::Push(Const::I0),

@@ -1,6 +1,6 @@
 use std::{error::Error, io::Write, sync::Arc};
 
-use jvmrs_lib::{access, AccessFlags, ClassVersion, Constant, MethodDescriptor};
+use jvmrs_lib::{access, AccessFlags, ClassVersion, Constant, MethodDescriptor, MethodHandle};
 
 #[derive(Debug)]
 pub struct FieldInfo {}
@@ -34,6 +34,14 @@ impl AttributeInfo {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct BootstrapInfo {
+    pub name: Arc<str>,
+    pub ty: MethodDescriptor,
+    pub bootstrap_arguments: Vec<Constant>,
+    pub method_handle: MethodHandle,
+}
+
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct Class {
@@ -45,6 +53,7 @@ pub struct Class {
     interfaces: Vec<Arc<str>>,
     fields: Vec<FieldInfo>,
     methods: Vec<MethodInfo>,
+    bootstrap_methods: Vec<BootstrapInfo>,
     attributes: Vec<AttributeInfo>,
 }
 
@@ -62,6 +71,7 @@ impl Class {
             interfaces: Vec::new(),
             fields: Vec::new(),
             methods: Vec::new(),
+            bootstrap_methods: Vec::new(),
             attributes: Vec::new(),
         }
     }
@@ -73,6 +83,20 @@ impl Class {
             self.register_constant(Constant::String(attr.name.clone()));
         }
         self.methods.push(method);
+    }
+
+    pub fn register_bootstrap(&mut self, bootstrap_method: BootstrapInfo) -> u16 {
+        let bootstrap_index = self.bootstrap_methods.len() as u16;
+        self.register_constant(Constant::InvokeDynamic {
+            bootstrap_index,
+            method_name: bootstrap_method.name.clone(),
+            method_type: bootstrap_method.ty.clone(),
+        });
+        for bootstrap_arg in &bootstrap_method.bootstrap_arguments {
+            self.register_constant(bootstrap_arg.clone());
+        }
+        self.bootstrap_methods.push(bootstrap_method);
+        bootstrap_index
     }
 
     #[allow(clippy::too_many_lines)]
