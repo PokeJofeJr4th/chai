@@ -230,7 +230,7 @@ fn compile_expression(
                     (Object("java/lang/String".into())),
                     (Object("java/lang/invoke/MethodType".into())),
                     (Object("java/lang/String".into())),
-                    ([]Object("java/lang/invoke/MethodHandles$Lookup".into()))) -> Object("java/lang/String".into())),
+                    ([]Object("java/lang/Object".into()))) -> Object("java/lang/invoke/CallSite".into())),
                 },
             });
             code.push(Instruction::InvokeDynamic(

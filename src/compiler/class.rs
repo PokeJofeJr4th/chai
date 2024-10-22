@@ -86,9 +86,8 @@ impl Class {
     }
 
     pub fn register_bootstrap(&mut self, bootstrap_method: BootstrapInfo) -> u16 {
-        let bootstrap_index = u16::try_from(self.bootstrap_methods.len()).unwrap() + 1;
-        self.register_constant(Constant::InvokeDynamic {
-            bootstrap_index,
+        let invoke_d = self.register_constant(Constant::InvokeDynamic {
+            bootstrap_index: u16::try_from(self.bootstrap_methods.len()).unwrap(),
             method_name: bootstrap_method.name.clone(),
             method_type: bootstrap_method.ty.clone(),
         });
@@ -99,7 +98,7 @@ impl Class {
             self.register_constant(bootstrap_arg.clone());
         }
         self.bootstrap_methods.push(bootstrap_method);
-        bootstrap_index
+        invoke_d
     }
 
     #[allow(clippy::too_many_lines)]
@@ -211,7 +210,7 @@ impl Class {
             let attr_idx =
                 u16::try_from(self.get_constant(&Constant::String(name.clone())).unwrap()).unwrap();
             writer.write_all(&attr_idx.to_be_bytes())?;
-            writer.write_all(&u16::try_from(info.len()).unwrap().to_be_bytes())?;
+            writer.write_all(&u32::try_from(info.len()).unwrap().to_be_bytes())?;
             writer.write_all(info)?;
         }
         // forbid self-modification for the writing stretch
