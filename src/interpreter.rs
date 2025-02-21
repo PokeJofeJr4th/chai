@@ -3,7 +3,9 @@ use std::{borrow::Cow, collections::HashMap, ops::Add, sync::Arc};
 use jvmrs_lib::FieldType;
 
 use crate::{
-    parser::syntax::{BinaryOperator, Expression, ImportTree, TopLevel, UnaryOperator},
+    parser::syntax::{
+        BinaryOperator, Expression, ImportTree, InnerTypeExpr, TopLevel, TypeExpr, UnaryOperator,
+    },
     types::{IRFieldType, InnerFieldType},
 };
 
@@ -124,13 +126,60 @@ pub fn resolve_imports(
 }
 
 /// # Errors
-/// uhh...
 pub fn get_global_context(syn: &[TopLevel]) -> Result<Context, String> {
     let mut global_context = Context::new();
     for syn in syn {
         apply_top_level(&[], &mut global_context, syn)?;
     }
     Ok(global_context)
+}
+
+fn resolve_type(
+    TypeExpr { ty, array_depth }: &TypeExpr,
+    context: &Context,
+) -> Result<IRFieldType, String> {
+    Ok(IRFieldType {
+        ty: match ty {
+            InnerTypeExpr::Ident(id, type_exprs) => {
+                let Some(item) = context.get(id) else {
+                    return Err(format!("Unresolved Identifier {id}"));
+                };
+                match item {
+                    CtxItem::Function(function_infos) => {
+                        return Err(format!("Expected type; got function `{id}`"));
+                    }
+                    CtxItem::Class(class_info) => InnerFieldType::Object {
+                        base: class_info.name.clone(),
+                        generics: Vec::new(),
+                    },
+                    CtxItem::Variable(_, irfield_type) => {
+                        return Err(format!("Expected type; got local variable `{id}`"));
+                    }
+                    CtxItem::Field(field_info) => {
+                        return Err(format!("Expected type; got field `{id}`"));
+                    }
+                    CtxItem::Module(hash_map) => {
+                        return Err(format!("Expected type; got module `{id}`"));
+                    }
+                }
+            }
+            InnerTypeExpr::Tuple(type_exprs) => InnerFieldType::Tuple(
+                type_exprs
+                    .iter()
+                    .map(|t| resolve_type(t, context))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            InnerTypeExpr::Boolean => InnerFieldType::Boolean,
+            InnerTypeExpr::Byte => InnerFieldType::Byte,
+            InnerTypeExpr::Short => InnerFieldType::Short,
+            InnerTypeExpr::Integer => InnerFieldType::Int,
+            InnerTypeExpr::Long => InnerFieldType::Long,
+            InnerTypeExpr::Float => InnerFieldType::Float,
+            InnerTypeExpr::Double => InnerFieldType::Double,
+            InnerTypeExpr::Character => InnerFieldType::Char,
+        },
+        array_depth: *array_depth,
+    })
 }
 
 fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> Result<(), String> {
@@ -158,7 +207,7 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
                     .collect::<Result<_, _>>()?,
                 ret: return_type
                     .as_ref()
-                    .map_or_else(|| IRFieldType::VOID, Clone::clone),
+                    .map_or_else(|| Ok(IRFieldType::VOID), |t| resolve_type(t, context))?,
             };
             context.insert(
                 name.clone(),
@@ -173,14 +222,19 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
             let class_name: Arc<str> = Arc::from(parents.join("/") + &**class_name);
             context.insert(
                 class_name.clone(),
-                CtxItem::Class(class_info(parents, &class_name, body)),
+                CtxItem::Class(class_info(parents, &class_name, body, &context)?),
             );
         }
     }
     Ok(())
 }
 
-fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> ClassInfo {
+fn class_info(
+    parents: &[&str],
+    class_name: &Arc<str>,
+    items: &[TopLevel],
+    context: &Context,
+) -> Result<ClassInfo, String> {
     let mut info = ClassInfo {
         name: Arc::from(
             parents.join("/") + if parents.is_empty() { "" } else { "/" } + &**class_name,
@@ -208,8 +262,13 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
                     access: *access,
                     name: name.clone(),
                     generics: generics.clone(),
-                    params: params.iter().map(|(t, _)| t.clone()).collect(),
-                    ret: return_type.clone().unwrap_or(IRFieldType::VOID),
+                    params: params
+                        .iter()
+                        .map(|(t, _)| resolve_type(t, context))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    ret: return_type
+                        .as_ref()
+                        .map_or(Ok(IRFieldType::VOID), |ty| resolve_type(ty, context))?,
                 })),
             TopLevel::Import(_) => {}
             TopLevel::Class {
@@ -217,12 +276,16 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
                 body,
                 generics: _,
             } => {
-                info.inner_classes
-                    .push(class_info(&[parents, &[class_name]].concat(), name, body));
+                info.inner_classes.push(class_info(
+                    &[parents, &[class_name]].concat(),
+                    name,
+                    body,
+                    context,
+                )?);
             }
         }
     }
-    info
+    Ok(info)
 }
 
 /// # Errors
@@ -300,10 +363,9 @@ fn interpret_class(
                     &body,
                     &mut function_context,
                     &mut local_var_table,
-                    return_type.clone().unwrap_or_else(|| IRFieldType {
-                        ty: InnerFieldType::Tuple(Vec::new()),
-                        array_depth: 0,
-                    }),
+                    return_type
+                        .as_ref()
+                        .map_or_else(|| Ok(IRFieldType::VOID), |t| resolve_type(&t, &context))?,
                 )?;
                 ir_functions.push(IRFunction {
                     name: name.clone(),
@@ -336,30 +398,6 @@ fn interpret_class(
         ir_functions,
     );
     Ok(())
-}
-
-fn resolve_type(ty: &IRFieldType, function_context: &Context) -> Result<IRFieldType, String> {
-    if let IRFieldType {
-        ty: InnerFieldType::Object { base, generics },
-        array_depth,
-    } = ty
-    {
-        let Some(resolved) = function_context.get(base) else {
-            return Err(format!("Unresolved identifier `{base}`; expected a type"));
-        };
-        let CtxItem::Class(class_info) = resolved else {
-            return Err(format!("Expected a class type; got `{resolved:?}`"));
-        };
-        Ok(IRFieldType {
-            ty: InnerFieldType::Object {
-                base: class_info.name.clone(),
-                generics: generics.clone(),
-            },
-            array_depth: *array_depth,
-        })
-    } else {
-        Ok(ty.clone())
-    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -735,6 +773,7 @@ fn interpret_syntax(
             ))
         }
         (Expression::Let { ty, var, value }, expected_ty) if expected_ty.is_void() => {
+            let ty = resolve_type(ty, function_context)?;
             let local_index = local_var_table.len();
             function_context.insert(var.clone(), CtxItem::Variable(local_index, ty.clone()));
             local_var_table.push((ty.clone(), var.clone()));
@@ -773,6 +812,7 @@ fn interpret_syntax(
             },
             expected_ty,
         ) if expected_ty.is_void() => {
+            let ty = resolve_type(ty, function_context)?;
             if let Expression::FunctionCall { function, args } = &**range {
                 if let (Expression::Ident(range_kw, generics), [start, end, _step @ ..]) =
                     (&**function, &args[..])
@@ -872,6 +912,10 @@ fn resolve_function(
             // Ok((output, id.clone()))
         }
         Expression::Ident(id, generics) => {
+            let generics = generics
+                .iter()
+                .map(|ty| resolve_type(ty, context))
+                .collect::<Result<Vec<_>, _>>()?;
             let Some(func_item) = context.get(id) else {
                 return Err(format!("Unresolved function identifier `{id}`"));
             };
@@ -882,7 +926,7 @@ fn resolve_function(
                 if func_option.params.len() != param_types.len() {
                     continue;
                 }
-                let concrete_option = func_option.apply_generics(generics);
+                let concrete_option = func_option.apply_generics(&generics);
                 if !concrete_option
                     .params
                     .iter()

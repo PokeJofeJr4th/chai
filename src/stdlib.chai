@@ -1,23 +1,23 @@
 class chai {
-    fn print(java.lang.String value);
+    fn print(String value);
     fn print(int value);
-    fn range(int a, int b) -> java.lang.Object;
+    fn range(int a, int b) -> Object;
 }
 mod java {
     mod lang {
         class String {}
         class Integer {
-            fn parseInt(java.lang.String value) -> int;
-            fn valueOf(int value) -> java.lang.Integer;
+            fn parseInt(String value) -> int;
+            fn valueOf(int value) -> Integer;
         }
         class Float {
-            fn parseFloat(java.lang.String value) -> float;
-            fn valueOf(float value) -> java.lang.Float;
+            fn parseFloat(String value) -> float;
+            fn valueOf(float value) -> Float;
         }
         class Object {}
 
         interface Comparable {
-            fn compareTo(this, java.lang.Object o) -> int;
+            fn compareTo(this, Object o) -> int;
         }
 
         interface Comparator<T> {
@@ -26,8 +26,8 @@ mod java {
     }
     mod util {
         class Optional<T> {
-            fn <U>of(U object) -> java.lang.Optional<U>;
-            fn <U>empty() -> java.lang.Optional<U>;
+            fn <U>of(U object) -> Optional<U>;
+            fn <U>empty() -> Optional<U>;
         }
     }
 }
