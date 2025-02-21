@@ -30,7 +30,14 @@ pub struct FunctionInfo {
     pub access: AccessFlags,
     pub name: Arc<str>,
     pub params: Vec<IRFieldType>,
+    pub generics: Vec<Arc<str>>,
     pub ret: IRFieldType,
+}
+
+impl FunctionInfo {
+    pub fn apply_generics(&self, generics: &[IRFieldType]) -> Self {
+        todo!()
+    }
 }
 
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]

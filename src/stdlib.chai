@@ -2,11 +2,6 @@ class chai {
     fn print(java.lang.String value);
     fn print(int value);
     fn range(int a, int b) -> java.lang.Object;
-
-    class option {
-        fn some(java.lang.Object object) -> java.lang.Optional;
-        fn none() -> java.lang.Optional;
-    }
 }
 mod java {
     mod lang {
@@ -25,16 +20,16 @@ mod java {
             fn compareTo(this, java.lang.Object o) -> int;
         }
 
-        interface Comparator {
-            fn compare(this, java.lang.Object a, java.lang.Object b) -> int;
+        interface Comparator<T> {
+            fn compare(this, T a, T b) -> int;
         }
     }
     mod util {
-        class Optional {
-            fn of(java.lang.Object object) -> java.lang.Optional;
-            fn empty() -> java.lang.Optional;
+        class Optional<T> {
+            fn <U>of(U object) -> java.lang.Optional<U>;
+            fn <U>empty() -> java.lang.Optional<U>;
         }
     }
 }
-import java.lang.{String, Integer, Object};
-import chai.{print, option, range};
+import java.{lang.{String, Integer, Object}, util.Optional};
+import chai.{print, range};

@@ -2,7 +2,10 @@ use std::{fmt::Debug, sync::Arc};
 
 use jvmrs_lib::FieldType;
 
-use crate::{compiler::instruction::PrimitiveType, interpreter::types::TypeHint};
+use crate::{
+    compiler::instruction::PrimitiveType, interpreter::types::TypeHint,
+    parser::syntax::GenericBound,
+};
 
 #[derive(Clone, PartialEq, Hash, Eq)]
 pub enum InnerFieldType {
@@ -16,7 +19,10 @@ pub enum InnerFieldType {
     Char,
     Object {
         base: Arc<str>,
-        generics: Vec<IRFieldType>,
+        generics: Vec<GenericBound>,
+    },
+    GenericPlaceholder {
+        generic: GenericBound,
     },
     Tuple(Vec<IRFieldType>),
 }
@@ -50,6 +56,7 @@ impl Debug for InnerFieldType {
                 }
                 tup.finish()
             }
+            Self::GenericPlaceholder { generic } => write!(f, "{generic}"),
         }
     }
 }
@@ -68,6 +75,7 @@ impl InnerFieldType {
             Self::Short => "java/lang/Short",
             Self::Object { base, generics: _ } => base,
             Self::Tuple(_) => "java/lang/Object",
+            Self::GenericPlaceholder { generic } => generic,
         }
     }
 
@@ -103,6 +111,7 @@ impl InnerFieldType {
                 }
                 field_type
             }
+            Self::GenericPlaceholder { generic } => FieldType::Object("java/lang/Object".into()),
         }
     }
 }
@@ -164,9 +173,9 @@ impl IRFieldType {
                 InnerFieldType::Float => PrimitiveType::Float,
                 InnerFieldType::Double => PrimitiveType::Double,
                 InnerFieldType::Char => PrimitiveType::Char,
-                InnerFieldType::Object { .. } | InnerFieldType::Tuple(_) => {
-                    PrimitiveType::Reference
-                }
+                InnerFieldType::Object { .. }
+                | InnerFieldType::Tuple(_)
+                | InnerFieldType::GenericPlaceholder { .. } => PrimitiveType::Reference,
             }
         }
     }

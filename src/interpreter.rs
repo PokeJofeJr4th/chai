@@ -141,6 +141,7 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
         }
         TopLevel::Function {
             name,
+            generics,
             access,
             params,
             return_type,
@@ -150,6 +151,7 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
                 class: parents.join("/").into(),
                 access: *access,
                 name: name.clone(),
+                generics: generics.clone(),
                 params: params
                     .iter()
                     .map(|(ty, _)| resolve_type(ty, context))
@@ -163,11 +165,15 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
                 CtxItem::Function(vec![Arc::new(function_info)]),
             );
         }
-        TopLevel::Class(class_name, items) => {
+        TopLevel::Class {
+            class_name,
+            body,
+            generics: _,
+        } => {
             let class_name: Arc<str> = Arc::from(parents.join("/") + &**class_name);
             context.insert(
                 class_name.clone(),
-                CtxItem::Class(class_info(parents, &class_name, items)),
+                CtxItem::Class(class_info(parents, &class_name, body)),
             );
         }
     }
@@ -188,6 +194,7 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
         match item {
             TopLevel::Function {
                 name,
+                generics,
                 access,
                 params,
                 return_type,
@@ -200,16 +207,18 @@ fn class_info(parents: &[&str], class_name: &Arc<str>, items: &[TopLevel]) -> Cl
                     class: info.name.clone(),
                     access: *access,
                     name: name.clone(),
+                    generics: generics.clone(),
                     params: params.iter().map(|(t, _)| t.clone()).collect(),
                     ret: return_type.clone().unwrap_or(IRFieldType::VOID),
                 })),
             TopLevel::Import(_) => {}
-            TopLevel::Class(name, items) => {
-                info.inner_classes.push(class_info(
-                    &[parents, &[class_name]].concat(),
-                    name,
-                    items,
-                ));
+            TopLevel::Class {
+                class_name: name,
+                body,
+                generics: _,
+            } => {
+                info.inner_classes
+                    .push(class_info(&[parents, &[class_name]].concat(), name, body));
             }
         }
     }
@@ -227,10 +236,15 @@ pub fn interpret(
     println!("{global_context:#?}");
     let mut class_table = HashMap::new();
     for syn in syn {
-        let TopLevel::Class(name, syn) = syn else {
+        let TopLevel::Class {
+            class_name,
+            generics: _,
+            body,
+        } = syn
+        else {
             continue;
         };
-        interpret_class(&[], &name, syn, global_context, &mut class_table)?;
+        interpret_class(&[], &class_name, body, global_context, &mut class_table)?;
     }
     Ok(class_table)
 }
@@ -251,6 +265,7 @@ fn interpret_class(
         match x {
             TopLevel::Function {
                 name,
+                generics,
                 access,
                 params,
                 return_type,
@@ -300,11 +315,15 @@ fn interpret_class(
                     body,
                 });
             }
-            TopLevel::Class(inner_class_name, class_body) => {
+            TopLevel::Class {
+                class_name: inner_class_name,
+                generics: _,
+                body,
+            } => {
                 interpret_class(
                     parents,
                     &(class_name.to_string() + "$" + &inner_class_name).into(),
-                    class_body,
+                    body,
                     &context,
                     class_table,
                 )?;
@@ -350,7 +369,7 @@ fn type_hint(
     local_var_table: &mut Vec<(IRFieldType, Arc<str>)>,
 ) -> Result<TypeHint, String> {
     match syn {
-        Expression::Ident(i) => {
+        Expression::Ident(i, generics) => {
             let Some(item) = function_context.get(i) else {
                 return Err(format!(
                     "Unresolved Identifier `{i}`; expected an expression"
@@ -483,7 +502,7 @@ fn interpret_syntax(
     expected_ty: IRFieldType,
 ) -> Result<IRExpression, String> {
     match (syn, expected_ty) {
-        (Expression::Ident(i), expected) => {
+        (Expression::Ident(i, generics), expected) => {
             let Some(item) = function_context.get(i) else {
                 return Err(format!("Unresolved identifier `{i}`"));
             };
@@ -755,10 +774,10 @@ fn interpret_syntax(
             expected_ty,
         ) if expected_ty.is_void() => {
             if let Expression::FunctionCall { function, args } = &**range {
-                if let (Expression::Ident(range_kw), [start, end, _step @ ..]) =
+                if let (Expression::Ident(range_kw, generics), [start, end, _step @ ..]) =
                     (&**function, &args[..])
                 {
-                    if &**range_kw == "range" {
+                    if &**range_kw == "range" && generics.is_empty() {
                         let mut loop_context = function_context.child();
                         let var_idx = local_var_table.len();
                         local_var_table.push((ty.clone(), var.clone()));
@@ -818,10 +837,10 @@ fn resolve_function(
 ) -> Result<(Vec<IRStatement>, Arc<FunctionInfo>), String> {
     match function {
         Expression::BinaryOperation(obj, BinaryOperator::Dot, func) => {
-            let Expression::Ident(id) = &**func else {
+            let Expression::Ident(id, generics) = &**func else {
                 return Err(format!("Expected function name; got `{func:?}`"));
             };
-            if let Expression::Ident(class) = &**obj {
+            if let Expression::Ident(class, generics) = &**obj {
                 if let Some(CtxItem::Class(class)) = context.get(class) {
                     let Some(method_choices) = class.methods.get(id) else {
                         return Err(format!("No function {id} found on class {}", class.name));
@@ -852,7 +871,7 @@ fn resolve_function(
             todo!("Resolve the instance function");
             // Ok((output, id.clone()))
         }
-        Expression::Ident(id) => {
+        Expression::Ident(id, generics) => {
             let Some(func_item) = context.get(id) else {
                 return Err(format!("Unresolved function identifier `{id}`"));
             };
@@ -863,7 +882,8 @@ fn resolve_function(
                 if func_option.params.len() != param_types.len() {
                     continue;
                 }
-                if !func_option
+                let concrete_option = func_option.apply_generics(generics);
+                if !concrete_option
                     .params
                     .iter()
                     .zip(param_types)

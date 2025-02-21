@@ -431,6 +431,9 @@ fn compile_expression(
                     unreachable!("Can't box object {base}<{generics:?}>")
                 }
                 InnerFieldType::Tuple(ty) => unreachable!("Can't box tuple {ty:?}"),
+                InnerFieldType::GenericPlaceholder { generic } => {
+                    unreachable!("Can't box generic placeholder {generic}")
+                }
             });
             let mut code = compile_expression(*inner, class)?;
             code.push(Instruction::InvokeStatic(

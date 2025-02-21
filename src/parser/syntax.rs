@@ -30,21 +30,48 @@ impl Debug for ImportTree {
 }
 
 #[derive(Debug)]
+pub struct TypeExpr {
+    pub ty: InnerTypeExpr,
+    pub array_depth: usize,
+}
+
+#[derive(Debug)]
+pub enum InnerTypeExpr {
+    Ident(Arc<str>, Vec<TypeExpr>),
+    Tuple(Vec<TypeExpr>),
+    Boolean,
+    Byte,
+    Short,
+    Integer,
+    Long,
+    Float,
+    Double,
+    Character,
+}
+
+pub type GenericBound = Arc<str>;
+
+#[derive(Debug)]
 pub enum TopLevel {
     Import(ImportTree),
     Function {
         name: Arc<str>,
+        generics: Vec<GenericBound>,
         access: AccessFlags,
-        params: Vec<(IRFieldType, Arc<str>)>,
-        return_type: Option<IRFieldType>,
+        params: Vec<(TypeExpr, Arc<str>)>,
+        return_type: Option<TypeExpr>,
         body: Expression,
     },
-    Class(Arc<str>, Vec<TopLevel>),
+    Class {
+        class_name: Arc<str>,
+        generics: Vec<GenericBound>,
+        body: Vec<TopLevel>,
+    },
 }
 
 #[derive(Debug)]
 pub enum Expression {
-    Ident(Arc<str>),
+    Ident(Arc<str>, Vec<TypeExpr>),
     Int(i64),
     Float(f64),
     String(Arc<str>),
@@ -65,7 +92,7 @@ pub enum Expression {
         else_body: Option<Box<Expression>>,
     },
     Let {
-        ty: IRFieldType,
+        ty: TypeExpr,
         var: Arc<str>,
         value: Box<Expression>,
     },
@@ -75,7 +102,7 @@ pub enum Expression {
         condition: Option<Box<Expression>>,
     },
     For {
-        ty: IRFieldType,
+        ty: TypeExpr,
         var: Arc<str>,
         range: Box<Expression>,
         body: Box<Expression>,

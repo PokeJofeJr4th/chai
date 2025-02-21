@@ -1,6 +1,7 @@
 use std::iter::Peekable;
 
 use jvmrs_lib::{access, AccessFlags};
+use syntax::{GenericBound, InnerTypeExpr, TypeExpr};
 
 use crate::{
     lexer::token::Token,
@@ -63,6 +64,7 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
         Token::Ident(id) if &*id == "fn" => parse_function(src),
         Token::Ident(id) if &*id == "class" => {
             let_token!(src => Token::Ident(class_name), "class name");
+            let generics = parse_generic_bounds(src)?;
             let_token!(src => Token::LCurly, "`{`");
             let mut syntax = Vec::new();
             loop {
@@ -72,20 +74,21 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
                 }
             }
             let_token!(src => Token::RCurly, "`}`");
-            Ok(TopLevel::Class(class_name, syntax))
+            Ok(TopLevel::Class { class_name, generics, body: syntax })
         },
         Token::Ident(id) if &*id == "interface" => {
             let_token!(src => Token::Ident(class_name), "interface name");
+            let generics = parse_generic_bounds(src)?;
             let_token!(src => Token::LCurly, "`{`");
-            let mut syntax = Vec::new();
+            let mut body = Vec::new();
             loop {
                 match src.peek() {
                     Some(Token::RCurly) => break,
-                    _ => syntax.push(inner_parse(src)?)
+                    _ => body.push(inner_parse(src)?)
                 }
             }
             let_token!(src => Token::RCurly, "`}`");
-            Ok(TopLevel::Class(class_name, syntax))
+            Ok(TopLevel::Class { class_name, generics, body })
         },
         Token::Ident(id) if &*id == "mod" => {
             let_token!(src => Token::Ident(mod_name), "module name");
@@ -98,7 +101,7 @@ fn inner_parse(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLev
                 }
             }
             let_token!(src => Token::RCurly, "`}`");
-            Ok(TopLevel::Class(mod_name, items))
+            Ok(TopLevel::Class { class_name: mod_name, generics: Vec::new(), body: items })
         }
     } "`import`, `class`, `interface`, `mod`, or `fn`")
 }
@@ -151,6 +154,7 @@ fn parse_import_node(
 }
 
 fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TopLevel, String> {
+    let generics = parse_generic_bounds(src)?;
     let_token!(src => Token::Ident(name), "function name identifier");
     let_token!(src => Token::LParen, "`(`");
     let mut access = access!(public static);
@@ -195,6 +199,7 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
 
     Ok(TopLevel::Function {
         name,
+        generics,
         access,
         params,
         return_type,
@@ -202,16 +207,57 @@ fn parse_function(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Top
     })
 }
 
-fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRFieldType, String> {
+fn parse_generic_bounds(
+    src: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Vec<GenericBound>, String> {
+    let mut generics = Vec::new();
+    if src.next_if(|t| *t == Token::LCaret).is_some()
+        && src.next_if(|t| *t == Token::RCaret).is_none()
+    {
+        loop {
+            let_token!(src => Token::Ident(id), "Generic type");
+            generics.push(id);
+            match_token!(src {
+                        Token::RCaret => break,
+                        Token::Comma => {
+                            Ok(())
+                        },
+                    } "`,` or `>`")?;
+        }
+    }
+    Ok(generics)
+}
+
+fn parse_generic_parameters(
+    src: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Vec<TypeExpr>, String> {
+    let mut generics = Vec::new();
+    if src.next_if(|t| *t == Token::LCaret).is_some()
+        && src.next_if(|t| *t == Token::RCaret).is_none()
+    {
+        loop {
+            generics.push(parse_type(src)?);
+            match_token!(src {
+                        Token::RCaret => break,
+                        Token::Comma => {
+                            Ok(())
+                        },
+                    } "`,` or `>`")?;
+        }
+    }
+    Ok(generics)
+}
+
+fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TypeExpr, String> {
     let ty = match_token!(src {
-        Token::Ident(id) if &*id == "boolean" => Ok(InnerFieldType::Boolean),
-        Token::Ident(id) if &*id == "byte" => Ok(InnerFieldType::Byte),
-        Token::Ident(id) if &*id == "short" => Ok(InnerFieldType::Short),
-        Token::Ident(id) if &*id == "int" => Ok(InnerFieldType::Int),
-        Token::Ident(id) if &*id == "long" => Ok(InnerFieldType::Long),
-        Token::Ident(id) if &*id == "float" => Ok(InnerFieldType::Float),
-        Token::Ident(id) if &*id == "double" => Ok(InnerFieldType::Double),
-        Token::Ident(id) if &*id == "char" => Ok(InnerFieldType::Char),
+        Token::Ident(id) if &*id == "boolean" => Ok(InnerTypeExpr::Boolean),
+        Token::Ident(id) if &*id == "byte" => Ok(InnerTypeExpr::Byte),
+        Token::Ident(id) if &*id == "short" => Ok(InnerTypeExpr::Short),
+        Token::Ident(id) if &*id == "int" => Ok(InnerTypeExpr::Integer),
+        Token::Ident(id) if &*id == "long" => Ok(InnerTypeExpr::Long),
+        Token::Ident(id) if &*id == "float" => Ok(InnerTypeExpr::Float),
+        Token::Ident(id) if &*id == "double" => Ok(InnerTypeExpr::Double),
+        Token::Ident(id) if &*id == "char" => Ok(InnerTypeExpr::Character),
         Token::Ident(id) => {
             let mut base = String::new();
             base.push_str(&id);
@@ -221,17 +267,8 @@ fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRField
                 let_token!(src => Token::Ident(segment), "class name segment");
                 base.push_str(&segment);
             }
-            let mut generics = Vec::new();
-            if src.next_if_eq(&Token::LCaret).is_some() && src.next_if_eq(&Token::RCaret).is_none(){
-                loop {
-                    generics.push(parse_type(src)?);
-                    match_token!(src {
-                        Token::RCaret => break,
-                        Token::Comma => Ok(()),
-                    } "`>` or `,`")?;
-                }
-            }
-            Ok(InnerFieldType::Object { base: base.into(), generics })
+            let generics = parse_generic_parameters(src)?;
+            Ok(InnerTypeExpr::Ident(base.into(), generics))
         },
         Token::LParen => {
             let mut parts = Vec::new();
@@ -247,7 +284,7 @@ fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRField
                     } "`,` or `)`")?;
                 }
             }
-            Ok(InnerFieldType::Tuple(parts))
+            Ok(InnerTypeExpr::Tuple(parts))
         }
     } "type")?;
     let mut array_depth = 0;
@@ -256,7 +293,7 @@ fn parse_type(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<IRField
         let_token!(src => Token::RSquare, "`]`");
         array_depth += 1;
     }
-    Ok(IRFieldType { ty, array_depth })
+    Ok(TypeExpr { ty, array_depth })
 }
 
 const BINARY_OPS: &[&[(Token, BinaryOperator)]] = &[
@@ -399,6 +436,7 @@ fn parse_func_call(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Ex
 }
 
 fn parse_item(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Expression, String> {
+    let generics = parse_generic_parameters(src)?;
     let item = match_token!(src {
         Token::Bang => Ok(Expression::UnaryOperation(UnaryOperator::Not, Box::new(parse_func_call(src)?))),
         Token::Tack => Ok(Expression::UnaryOperation(UnaryOperator::Minus, Box::new(parse_func_call(src)?))),
@@ -451,7 +489,7 @@ fn parse_item(src: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Express
             let body = Box::new(parse_expr(src)?);
             Ok(Expression::UnaryOperation(UnaryOperator::Try, body))
         },
-        Token::Ident(identifier) => Ok(Expression::Ident(identifier)),
+        Token::Ident(identifier) => Ok(Expression::Ident(identifier, generics)),
         Token::LParen => {
             let mut tuple_items = Vec::new();
             if src.peek() == Some(&Token::RParen) {

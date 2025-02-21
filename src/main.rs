@@ -32,7 +32,11 @@ fn main() {
     let mut syn = parser::parse(toks).unwrap();
 
     if syn.iter().any(|tl| matches!(tl, TopLevel::Function { .. })) {
-        syn = vec![TopLevel::Class(class_name.into(), syn)];
+        syn = vec![TopLevel::Class {
+            class_name: class_name.into(),
+            body: syn,
+            generics: Vec::new(),
+        }];
     }
 
     println!("{syn:#?}");
