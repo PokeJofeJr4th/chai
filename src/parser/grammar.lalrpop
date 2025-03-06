@@ -1,0 +1,27 @@
+use super::{ImportTree, TypeExpr, InnerTypeExpr, TopLevel, Expression, UnaryOperator, BinaryOperator};
+use std::sync::Arc;
+
+grammar;
+
+pub Program: Vec<TopLevel> = TopLevel+;
+
+pub TopLevel: TopLevel = {
+    "import" <ImportTree> => TopLevel::Import(<>),
+    "fn" => todo!(),
+    "class" => todo!(),
+    "interface" => todo!(),
+    "mod" <name:Ident> => todo!(),
+}
+
+ImportTree: ImportTree = {
+    Ident => ImportTree { current: <>, children: Vec::new() },
+    <current:Ident> "." "{" <head:ImportTree> <mut children:("," <ImportTree>)*> "}" => { 
+        children.insert(0, head);
+        ImportTree { current, children }
+    },
+    <current:Ident> "." <child:ImportTree> => {
+        ImportTree { current, children: vec![child] }
+    },
+};
+
+Ident: Arc<str> = r"[a-zA-Z$_]\w*" => Arc::from(<>);

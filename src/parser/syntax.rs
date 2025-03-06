@@ -5,8 +5,6 @@ use std::{
 
 use jvmrs_lib::AccessFlags;
 
-use crate::types::IRFieldType;
-
 pub struct ImportTree {
     pub current: Arc<str>,
     pub children: Vec<ImportTree>,

@@ -11,6 +11,8 @@ use crate::{
 
 use self::syntax::{Expression, ImportTree, TopLevel};
 
+lalrpop_util::lalrpop_mod! {grammar, "/parser/grammar.rs"}
+
 pub mod syntax;
 
 macro_rules! match_token {
