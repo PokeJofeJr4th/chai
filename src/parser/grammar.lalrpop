@@ -1,27 +1,189 @@
 use super::{ImportTree, TypeExpr, InnerTypeExpr, TopLevel, Expression, UnaryOperator, BinaryOperator};
 use std::sync::Arc;
+use jvmrs_lib::access;
 
 grammar;
 
 pub Program: Vec<TopLevel> = TopLevel+;
 
 pub TopLevel: TopLevel = {
-    "import" <ImportTree> => TopLevel::Import(<>),
-    "fn" => todo!(),
-    "class" => todo!(),
-    "interface" => todo!(),
-    "mod" <name:Ident> => todo!(),
+    "import" <ImportTree> ";" => TopLevel::Import(<>),
+    "fn" <generics:GenericBounds> <name:Ident> "(" "this" <params:("," <Param>)*> ")"
+        <return_type:("->" <Type>)?> <body: FunctionBody> => 
+    TopLevel::Function {
+        name,
+        generics,
+        access: access!(public),
+        params,
+        return_type,
+        body
+    },
+    "fn" <generics:GenericBounds> <name:Ident> "(" <params:Sep<Param, ",">> ")"
+    <return_type:("->" <Type>)?> <body:FunctionBody> => 
+    TopLevel::Function {
+        name,
+        generics,
+        access: access!(public),
+        params,
+        return_type,
+        body
+    },
+    ClassOrInterface <class_name:Ident> <generics:GenericBounds> "{" <body:TopLevel*> "}" => TopLevel::Class{<>},
+    "mod" <class_name:Ident> "{" <body:TopLevel*> "}" => TopLevel::Class{ class_name, body, generics: Vec::new() },
 }
+
+FunctionBody: Expression = {
+    BlockExpr,
+    ";" => Expression::Block {statements: Vec::new(), ret: None}
+};
+
+ClassOrInterface = {"class" , "interface"};
+
+Param = Type Ident;
 
 ImportTree: ImportTree = {
     Ident => ImportTree { current: <>, children: Vec::new() },
-    <current:Ident> "." "{" <head:ImportTree> <mut children:("," <ImportTree>)*> "}" => { 
-        children.insert(0, head);
-        ImportTree { current, children }
-    },
+    <current:Ident> "." "{" <children:Sep<ImportTree, "," >> "}" => ImportTree {<>},
     <current:Ident> "." <child:ImportTree> => {
         ImportTree { current, children: vec![child] }
     },
 };
 
+GenericBounds: Vec<Arc<str>> = {
+    => Vec::new(),
+    "<" <Sep<Ident, ",">> ">"
+};
+
+GenericParams: Vec<TypeExpr> = {
+    => Vec::new(),
+    "<" <Sep<Type, ",">> ">",
+};
+
+Type: TypeExpr = {
+    <ty:BaseType> <arr:("[" "]")*> => TypeExpr{ty, array_depth: arr.len()},
+};
+
+BaseType: InnerTypeExpr = {
+    "boolean" => InnerTypeExpr::Boolean,
+    "byte" => InnerTypeExpr::Byte,
+    "short" => InnerTypeExpr::Short,
+    "int" => InnerTypeExpr::Integer,
+    "long" => InnerTypeExpr::Long,
+    "float" => InnerTypeExpr::Float,
+    "double" => InnerTypeExpr::Double,
+    "char" => InnerTypeExpr::Character,
+    <base:StrictSep<Ident, "::">> <generics:GenericParams> => InnerTypeExpr::Ident(base.join("/").into(), generics),
+    "(" <Sep<Type, ",">> ")" => InnerTypeExpr::Tuple(<>),
+}
+
 Ident: Arc<str> = r"[a-zA-Z$_]\w*" => Arc::from(<>);
+
+Int: i64 = r"\-?[0-9]+" => <>.parse().unwrap();
+
+Float: f64 = r"\-?[0-9+](\.[0-9]+)?(e[+\-]?[0-9]+)" => <>.parse().unwrap();
+
+BlockExpr: Expression = "{" <statements:(<Expr> ";")*> <ret:Box<Expr>?> "}" => Expression::Block { <> };
+
+Base: Expression = {
+    "(" <mut items:Sep<Expr, ",">> ")" => if items.len() == 1 {
+        items.pop().unwrap()
+    } else {
+        Expression::Tuple(items)
+    },
+    BlockExpr,
+}
+
+Expr0: Expression = {
+    Int => Expression::Int(<>),
+    Float => Expression::Float(<>),
+    <generics:GenericParams> <ident:Ident> => Expression::Ident(ident, generics),
+    Base,
+}
+
+Expr1 = Tier<DotOp, Expr0>;
+
+DotOp: BinaryOperator = "." => BinaryOperator::Dot;
+
+Expr2 = Tier<T2, Expr1>;
+
+T2: BinaryOperator = {
+    "*" => BinaryOperator::Mul,
+    "/" => BinaryOperator::Div,
+    "%" => BinaryOperator::Mod,
+}
+
+Expr3 = Tier<T3, Expr2>;
+
+T3: BinaryOperator = {
+    "-" => BinaryOperator::Sub,
+    "+" => BinaryOperator::Add,
+}
+
+Expr4 = Tier<T4, Expr3>;
+
+T4: BinaryOperator = {
+    "==" => BinaryOperator::Eq,
+    "!=" => BinaryOperator::Ne,
+    "<" => BinaryOperator::Lt,
+    "<=" => BinaryOperator::Le,
+    ">" => BinaryOperator::Gt,
+    ">=" => BinaryOperator::Ge,
+}
+
+Expr5 = Tier<T5, Expr4>;
+
+T5: BinaryOperator = {
+    "=" => BinaryOperator::Set,
+    "+=" => BinaryOperator::AddEq,
+    "-=" => BinaryOperator::SubEq,
+    "*=" => BinaryOperator::MulEq,
+    "/=" => BinaryOperator::DivEq,
+    "%=" => BinaryOperator::ModEq,
+    "&=" => BinaryOperator::BitAndEq,
+    "|=" => BinaryOperator::BitOrEq,
+    "^=" => BinaryOperator::XorEq,
+}
+
+Expr: Expression = {
+    Expr5,
+    <condition:Box<Expr5>> "?" <body:Box<Expr5>> ":" <else_body:Some<Box<Expr>>> => Expression::If { <> },
+    "let" <ty:Type> <var:Ident> "=" <value:Box<Expr5>> => Expression::Let { <> },
+    "for" <ty:Type> <var:Ident> "in" <range:Box<Expr5>> <body:Box<Base>> => Expression::For { <> },
+    "if" <condition:Box<Expr>> <body:Box<Base>> <else_body:("else" <Box<Base>>)?> => Expression::If { <> },
+    "while" <condition:Some<Box<Expr>>> <body:Box<Base>> => Expression::Loop { <> },
+    "loop" <body:Box<Expr>> => Expression::Loop { <>, condition: None },
+    "try" <inner:Box<Expr>> => Expression::UnaryOperation(UnaryOperator::Try, <>),
+}
+
+#[inline]
+Sep<T, S>: Vec<T> = {
+    <mut v:(<T> S)*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+#[inline]
+NonEmptySep<T, S>: Vec<T> = <StrictSep<T, S>> S?;
+
+#[inline]
+StrictSep<T, S>: Vec<T> = {
+    <mut v:(<T> S)*> <e:T> => {
+        v.push(e);
+        v
+    }
+}
+
+Tier<Op,NextTier>: Expression = {
+    Box<Tier<Op,NextTier>> Op Box<NextTier> => Expression::BinaryOperation(<>),
+    NextTier
+};
+
+#[inline]
+Box<T>: Box<T> = T => Box::new(<>);
+
+#[inline]
+Some<T>: Option<T> = T => Some(<>);
