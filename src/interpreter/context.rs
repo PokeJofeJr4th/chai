@@ -1,4 +1,8 @@
-use std::{collections::HashMap, hash::Hash, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, Mutex},
+};
 
 use jvmrs_lib::AccessFlags;
 
@@ -54,38 +58,47 @@ impl Hash for ClassInfo {
     }
 }
 
+pub type Context = Arc<Mutex<Ctx>>;
+
+pub trait CtxExt {
+    fn get(&self, k: &str) -> Option<CtxItem>;
+    fn insert(&mut self, k: Arc<str>, v: CtxItem) -> Option<CtxItem>;
+    fn new() -> Self;
+    fn child(&self) -> Context;
+}
+
 #[derive(Debug)]
-pub struct Context {
+pub struct Ctx {
     map: HashMap<Arc<str>, CtxItem>,
 }
 
-impl Context {
-    pub fn insert(&mut self, k: Arc<str>, v: CtxItem) -> Option<CtxItem> {
-        self.map.insert(k, v)
+impl CtxExt for Context {
+    fn insert(&mut self, k: Arc<str>, v: CtxItem) -> Option<CtxItem> {
+        self.lock().unwrap().map.insert(k, v)
     }
 
     #[must_use]
-    pub fn get(&self, k: &str) -> Option<&CtxItem> {
-        self.map.get(k)
+    fn get(&self, k: &str) -> Option<CtxItem> {
+        self.lock().unwrap().map.get(k).cloned()
     }
 
     #[must_use]
-    pub fn new() -> Self {
-        Self {
+    fn new() -> Self {
+        Arc::new(Mutex::new(Ctx {
             map: HashMap::new(),
-        }
+        }))
     }
 
     #[must_use]
-    pub fn child(&self) -> Self {
-        Self {
-            map: self.map.clone(),
-        }
+    fn child(&self) -> Self {
+        self.clone()
     }
 }
 
-impl Default for Context {
+impl Default for Ctx {
     fn default() -> Self {
-        Self::new()
+        Self {
+            map: HashMap::new(),
+        }
     }
 }

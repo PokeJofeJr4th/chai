@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, ops::Add, sync::Arc};
 
+use context::CtxExt;
 use jvmrs_lib::FieldType;
 
 use crate::{
@@ -30,12 +31,12 @@ fn import_from_context<'a>(
         return Err(format!("Failed to resolve import `{}`", path[0]));
     };
     if path.len() == 1 {
-        return Ok(Cow::Borrowed(ctx_item));
+        return Ok(Cow::Owned(ctx_item));
     }
     import_from_item(&path[1..], ctx_item)
 }
 
-fn import_from_item<'a>(path: &[&str], item: &'a CtxItem) -> Result<Cow<'a, CtxItem>, String> {
+fn import_from_item(path: &[&str], item: CtxItem) -> Result<Cow<'static, CtxItem>, String> {
     match item {
         CtxItem::Class(cls) => import_from_class(path, cls),
         CtxItem::Module(module) => {
@@ -43,9 +44,9 @@ fn import_from_item<'a>(path: &[&str], item: &'a CtxItem) -> Result<Cow<'a, CtxI
                 return Err(format!("Failed to resolve import `{}`", path.join(".")));
             };
             if path.len() == 1 {
-                Ok(Cow::Borrowed(ctx_item))
+                Ok(Cow::Owned(ctx_item.clone()))
             } else {
-                import_from_item(&path[1..], ctx_item)
+                import_from_item(&path[1..], ctx_item.clone())
             }
         }
         CtxItem::Function(_) => Err(format!("Can't resolve {} from a function", path.join("."))),
@@ -54,7 +55,7 @@ fn import_from_item<'a>(path: &[&str], item: &'a CtxItem) -> Result<Cow<'a, CtxI
     }
 }
 
-fn import_from_class<'a>(path: &[&str], cls: &'a ClassInfo) -> Result<Cow<'a, CtxItem>, String> {
+fn import_from_class(path: &[&str], cls: ClassInfo) -> Result<Cow<'static, CtxItem>, String> {
     if path.is_empty() {
         return Ok(Cow::Owned(CtxItem::Class(cls.clone())));
     }
@@ -68,7 +69,7 @@ fn import_from_class<'a>(path: &[&str], cls: &'a ClassInfo) -> Result<Cow<'a, Ct
         if class.name.split('/').last() != Some(path[0]) {
             continue;
         }
-        return import_from_class(&path[1..], class);
+        return import_from_class(&path[1..], class.clone());
     }
 
     Err(format!(
@@ -127,7 +128,7 @@ pub fn resolve_imports(
 
 /// # Errors
 pub fn get_global_context(syn: &[TopLevel]) -> Result<Context, String> {
-    let mut global_context = Context::new();
+    let mut global_context = CtxExt::new();
     for syn in syn {
         apply_top_level(&[], &mut global_context, syn)?;
     }
@@ -546,8 +547,8 @@ fn interpret_syntax(
             };
             match item {
                 CtxItem::Variable(var, ty) => {
-                    if &expected == ty {
-                        Ok(IRExpression::LocalVar(ty.clone(), *var))
+                    if expected == ty {
+                        Ok(IRExpression::LocalVar(ty.clone(), var))
                     } else {
                         Err(format!(
                             "Type Error for variable {i}: Expected `{expected:?}`; got `{ty:?}`"
