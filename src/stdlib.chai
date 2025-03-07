@@ -16,8 +16,8 @@ mod java {
         }
         class Object {}
 
-        interface Comparable {
-            fn compareTo(this, Object o) -> int;
+        interface Comparable<T> {
+            fn compareTo(this, T o) -> int;
         }
 
         interface Comparator<T> {

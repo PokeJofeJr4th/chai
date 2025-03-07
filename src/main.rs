@@ -8,7 +8,6 @@ use parser::syntax::TopLevel;
 
 pub mod compiler;
 pub mod interpreter;
-pub mod lexer;
 pub mod parser;
 pub mod types;
 
@@ -25,11 +24,9 @@ fn main() {
     let arg_display = args.filename.display().to_string();
     let class_name = arg_display.split('/').last().unwrap();
 
-    let toks = lexer::tokenize(&file).unwrap();
+    // println!("{:?}", file.char_indices().collect::<Vec<_>>());
 
-    println!("{toks:?}");
-
-    let mut syn = parser::parse(toks).unwrap();
+    let mut syn = parser::grammar::ProgramParser::new().parse(&file).unwrap();
 
     if syn.iter().any(|tl| matches!(tl, TopLevel::Function { .. })) {
         syn = vec![TopLevel::Class {
@@ -39,7 +36,7 @@ fn main() {
         }];
     }
 
-    println!("{syn:#?}");
+    // println!("{syn:#?}");
 
     let mut std_context = load_standard_lib()
         .map_err(|err| format!("While loading standard library: {err}"))
@@ -65,7 +62,9 @@ fn main() {
 }
 
 fn load_standard_lib() -> Result<Context, String> {
-    interpreter::get_global_context(&parser::parse(lexer::tokenize(include_str!(
-        "stdlib.chai"
-    ))?)?)
+    interpreter::get_global_context(
+        &parser::grammar::ProgramParser::new()
+            .parse(include_str!("stdlib.chai"))
+            .map_err(|x| x.to_string())?,
+    )
 }
