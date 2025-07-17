@@ -19,7 +19,7 @@ pub enum InnerFieldType {
     Char,
     Object {
         base: Arc<str>,
-        generics: Vec<GenericBound>,
+        generics: Vec<IRFieldType>,
     },
     GenericPlaceholder {
         generic: GenericBound,

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, ops::Add, sync::Arc};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 
 use context::CtxExt;
 use jvmrs_lib::FieldType;
@@ -20,10 +20,7 @@ pub mod context;
 pub mod ir;
 pub mod types;
 
-fn import_from_context<'a>(
-    path: &[&str],
-    context: &'a Context,
-) -> Result<Cow<'a, CtxItem>, String> {
+fn import_from_context(path: &[&str], context: &Context) -> Result<CtxItem, String> {
     if path.is_empty() {
         return Err(String::from("Invalid empty import path"));
     }
@@ -31,12 +28,12 @@ fn import_from_context<'a>(
         return Err(format!("Failed to resolve import `{}`", path[0]));
     };
     if path.len() == 1 {
-        return Ok(Cow::Owned(ctx_item));
+        return Ok(ctx_item);
     }
     import_from_item(&path[1..], ctx_item)
 }
 
-fn import_from_item(path: &[&str], item: CtxItem) -> Result<Cow<'static, CtxItem>, String> {
+fn import_from_item(path: &[&str], item: CtxItem) -> Result<CtxItem, String> {
     match item {
         CtxItem::Class(cls) => import_from_class(path, cls),
         CtxItem::Module(module) => {
@@ -44,7 +41,7 @@ fn import_from_item(path: &[&str], item: CtxItem) -> Result<Cow<'static, CtxItem
                 return Err(format!("Failed to resolve import `{}`", path.join(".")));
             };
             if path.len() == 1 {
-                Ok(Cow::Owned(ctx_item.clone()))
+                Ok(ctx_item.clone())
             } else {
                 import_from_item(&path[1..], ctx_item.clone())
             }
@@ -55,12 +52,12 @@ fn import_from_item(path: &[&str], item: CtxItem) -> Result<Cow<'static, CtxItem
     }
 }
 
-fn import_from_class(path: &[&str], cls: ClassInfo) -> Result<Cow<'static, CtxItem>, String> {
+fn import_from_class(path: &[&str], cls: ClassInfo) -> Result<CtxItem, String> {
     if path.is_empty() {
-        return Ok(Cow::Owned(CtxItem::Class(cls.clone())));
+        return Ok(CtxItem::Class(cls));
     }
     if let Some(method_info) = cls.methods.get(path[0]) {
-        return Ok(Cow::Owned(CtxItem::Function(method_info.clone())));
+        return Ok(CtxItem::Function(method_info.clone()));
     }
 
     for _field in &cls.fields {}
@@ -89,7 +86,7 @@ pub fn resolve_imports(
     if tree.children.is_empty() {
         if &*tree.current == "*" {
             // import everything
-            let ctx_item = import_from_context(parents, context)?.into_owned();
+            let ctx_item = import_from_context(parents, context)?;
             match ctx_item {
                 CtxItem::Class(cls) => {
                     for mut inner in cls.inner_classes {
@@ -115,8 +112,7 @@ pub fn resolve_imports(
             }
         } else {
             // import this exact item
-            let ctx_item =
-                import_from_context(&[parents, &[&*tree.current]].concat(), context)?.into_owned();
+            let ctx_item = import_from_context(&[parents, &[&*tree.current]].concat(), context)?;
             context.insert(tree.current.clone(), ctx_item);
         }
     }
@@ -143,23 +139,28 @@ fn resolve_type(
         ty: match ty {
             InnerTypeExpr::Ident(id, type_exprs) => {
                 let Some(item) = context.get(id) else {
-                    return Err(format!("Unresolved Identifier {id}"));
+                    return Err(format!(
+                        "Unresolved Identifier {id} in `{context:?}`; expected a type"
+                    ));
                 };
                 match item {
-                    CtxItem::Function(function_infos) => {
+                    CtxItem::Function(_function_infos) => {
                         return Err(format!("Expected type; got function `{id}`"));
                     }
                     CtxItem::Class(class_info) => InnerFieldType::Object {
-                        base: class_info.name.clone(),
-                        generics: Vec::new(),
+                        base: class_info.name,
+                        generics: type_exprs
+                            .iter()
+                            .map(|t| resolve_type(t, context))
+                            .collect::<Result<_, _>>()?,
                     },
-                    CtxItem::Variable(_, irfield_type) => {
+                    CtxItem::Variable(_, _irfield_type) => {
                         return Err(format!("Expected type; got local variable `{id}`"));
                     }
-                    CtxItem::Field(field_info) => {
+                    CtxItem::Field(_field_info) => {
                         return Err(format!("Expected type; got field `{id}`"));
                     }
-                    CtxItem::Module(hash_map) => {
+                    CtxItem::Module(_hash_map) => {
                         return Err(format!("Expected type; got module `{id}`"));
                     }
                 }
@@ -220,10 +221,9 @@ fn apply_top_level(parents: &[&str], context: &mut Context, syn: &TopLevel) -> R
             body,
             generics: _,
         } => {
-            let class_name: Arc<str> = Arc::from(parents.join("/") + &**class_name);
             context.insert(
                 class_name.clone(),
-                CtxItem::Class(class_info(parents, &class_name, body, &context)?),
+                CtxItem::Class(class_info(parents, &class_name, body, context)?),
             );
         }
     }
@@ -245,6 +245,7 @@ fn class_info(
         methods: HashMap::new(),
         inner_classes: Vec::new(),
     };
+    let mut class_context = context.child();
     for item in items {
         match item {
             TopLevel::Function {
@@ -265,24 +266,29 @@ fn class_info(
                     generics: generics.clone(),
                     params: params
                         .iter()
-                        .map(|(t, _)| resolve_type(t, context))
+                        .map(|(t, _)| resolve_type(t, &class_context))
                         .collect::<Result<Vec<_>, _>>()?,
                     ret: return_type
                         .as_ref()
-                        .map_or(Ok(IRFieldType::VOID), |ty| resolve_type(ty, context))?,
+                        .map_or(Ok(IRFieldType::VOID), |ty| resolve_type(ty, &class_context))?,
                 })),
-            TopLevel::Import(_) => {}
+            TopLevel::Import(import_tree) => {
+                resolve_imports(parents, import_tree, &mut class_context)
+                    .or_else(|_| resolve_imports(&[], import_tree, &mut class_context))?;
+            }
             TopLevel::Class {
                 class_name: name,
                 body,
                 generics: _,
             } => {
-                info.inner_classes.push(class_info(
+                let inner_class = class_info(
                     &[parents, &[class_name]].concat(),
                     name,
                     body,
-                    context,
-                )?);
+                    &class_context,
+                )?;
+                info.inner_classes.push(inner_class.clone());
+                class_context.insert(name.clone(), CtxItem::Class(inner_class));
             }
         }
     }
@@ -366,7 +372,7 @@ fn interpret_class(
                     &mut local_var_table,
                     return_type
                         .as_ref()
-                        .map_or_else(|| Ok(IRFieldType::VOID), |t| resolve_type(&t, &context))?,
+                        .map_or_else(|| Ok(IRFieldType::VOID), |t| resolve_type(t, &context))?,
                 )?;
                 ir_functions.push(IRFunction {
                     name: name.clone(),
@@ -409,13 +415,18 @@ fn type_hint(
 ) -> Result<TypeHint, String> {
     match syn {
         Expression::Ident(i, generics) => {
+            if !generics.is_empty() {
+                return Err(format!(
+                    "Unexpected generic bounds after variable `{syn:?}`"
+                ));
+            }
             let Some(item) = function_context.get(i) else {
                 return Err(format!(
                     "Unresolved Identifier `{i}`; expected an expression"
                 ));
             };
             match item {
-                CtxItem::Variable(_, ty) => Ok(TypeHint::Concrete(ty.clone())),
+                CtxItem::Variable(_, ty) => Ok(TypeHint::Concrete(ty)),
                 other => Err(format!("Expected a variable; got `{other:?}`")),
             }
         }
@@ -543,7 +554,9 @@ fn interpret_syntax(
     match (syn, expected_ty) {
         (Expression::Ident(i, generics), expected) => {
             let Some(item) = function_context.get(i) else {
-                return Err(format!("Unresolved identifier `{i}`"));
+                return Err(format!(
+                    "Unresolved identifier `{i}`; Expected a variable of type `{expected:?}`"
+                ));
             };
             match item {
                 CtxItem::Variable(var, ty) => {
@@ -555,7 +568,9 @@ fn interpret_syntax(
                         ))
                     }
                 }
-                _ => Err(format!("Unresolved identifier `{i}`; expected a variable")),
+                _ => Err(format!(
+                    "Unresolved identifier `{i}`; Expected a variable of type `{expected:?}`"
+                )),
             }
         }
         (
